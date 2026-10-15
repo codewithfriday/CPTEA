@@ -1,0 +1,34 @@
+name,lat,lon,kind,source,airac
+AGUDA,-7.45611111,114.40611111,waypoint,navearth,AIP Indonesia via NavEarth
+AKDAT,3.48972222,105.82138889,waypoint,navearth,AIP Indonesia via NavEarth
+ALEMI,12.61,101.443333,waypoint,import,AirNav route-expansion file
+ALUMO,10.765,101.865,waypoint,import,AirNav route-expansion file
+ARUPA,0.52777778,108.81277778,waypoint,navearth,AIP Indonesia via NavEarth
+BLI,-8.75058333,115.16330556,navaid,navearth,AIP Indonesia via NavEarth
+BOBOB,2.36833333,107.09944444,waypoint,navearth,AIP Indonesia via NavEarth
+BUKTU,-1.29166667,110.41166667,waypoint,navearth,AIP Indonesia via NavEarth
+BUT,12.679667,101.005,navaid,import,AirNav route-expansion file
+DAMOG,4.201111,105.001111,waypoint,import,AirNav route-expansion file
+DOBMA,-6.82652778,115.08163889,waypoint,navearth,AIP Indonesia via NavEarth
+ELGOR,3.500556,105.800556,waypoint,import,AirNav route-expansion file
+ENREP,4.867778,104.234444,waypoint,import,AirNav route-expansion file
+ESPIT,2.00305556,107.44,waypoint,navearth,AIP Indonesia via NavEarth
+IDBUD,0.24833333,105.0275,waypoint,navearth,AIP Indonesia via NavEarth
+KAMIN,2.57833333,108.92666667,waypoint,navearth,AIP Indonesia via NavEarth
+KOLTA,-6.46472222,113.82786111,waypoint,navearth,AIP Indonesia via NavEarth
+LEBIN,3.24388889,106.10111111,waypoint,navearth,AIP Indonesia via NavEarth
+MUMSO,3.734167,105.534167,waypoint,import,AirNav route-expansion file
+NIMIX,1.41444444,107.99055556,waypoint,navearth,AIP Indonesia via NavEarth
+NOPAT,4.383889,104.783889,waypoint,import,AirNav route-expansion file
+ODONO,6.626111,103.026111,waypoint,import,AirNav route-expansion file
+OMLIV,2.92,106.47,waypoint,navearth,AIP Indonesia via NavEarth
+PKN,-2.71847222,111.68772222,navaid,navearth,AIP Indonesia via NavEarth
+PNK,-0.07916667,109.37494444,navaid,navearth,AIP Indonesia via NavEarth
+SABIP,2.16111111,107.84555556,waypoint,navearth,AIP Indonesia via NavEarth
+SIRAT,10.58,101.613333,waypoint,import,AirNav route-expansion file
+SUGIK,-2.05763889,111.0975,waypoint,navearth,AIP Indonesia via NavEarth
+SUSAR,3.968889,105.252222,waypoint,import,AirNav route-expansion file
+TIDAR,6.875,102.841667,waypoint,import,AirNav route-expansion file
+TONIK,9.293333,101.993333,waypoint,import,AirNav route-expansion file
+UPLAM,2.84527778,106.55527778,waypoint,navearth,AIP Indonesia via NavEarth
+UPRON,6.151667,103.335,waypoint,import,AirNav route-expansion file

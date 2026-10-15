@@ -1,0 +1,16 @@
+# runtime data (database, uploads, run results)
+data/
+*.db
+*.db-shm
+*.db-wal
+# python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+# node / build
+frontend/node_modules/
+frontend/dist/
+# local environment
+.env
+docs/_manual.html
