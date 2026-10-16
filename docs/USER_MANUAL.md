@@ -63,6 +63,7 @@ Within a project, the owner can share it with another user at Viewer, Reviewer o
 - **Project header.** Shows the city pair as a route ribbon from ADEP to ADES, with the project period underneath.
 - **Run picker.** Most project pages have one. It chooses which analysis run the page shows, and your choice carries across pages.
 - **Chart downloads.** Every chart has **PNG**, **SVG** and **CSV** buttons. CSV gives the numbers behind the chart.
+- **Version.** The bottom of the left bar shows the CPTEA version.
 - **Map layers.** Every map has a layer button at the top right that switches airways, waypoints, FIR boundaries and TMA boundaries on and off. When the server has no internet access, the maps still show a built-in coastline.
 
 # 3. Projects
@@ -550,6 +551,7 @@ Entries cannot be changed. Filter by action or user, or choose **Download CSV**.
 |---|---|
 | "AirNav flight data API not reachable" | The CPTEA server is not on the AirNav VPN. Connect the server to the VPN and choose **Check connection** again, or import archive files instead. |
 | "NavEarth not reachable from the server" | The server cannot reach the WFS address. Choose **Test connection** to see which layers fail. Check the address and the server's network or VPN access. Meanwhile, use the shipped VTBS–WADD data, or import fixes and airways as CSV. |
+| A feature described in this manual is missing, or the left bar warns that "the web interface is older than the server" | The interface was not rebuilt after an update. Ask the administrator to rebuild it (see "Updating CPTEA" in the README), then reload the page. |
 | Test connection: "The server did not return GeoJSON" | The layer name does not exist on that server, or the address is not a WFS endpoint. Correct it under **Layer names**. |
 | Many flights show *plan not expandable* | A fix in the middle of their routes is unknown. The dataset's plan check names the fixes. Add them under **Aeronautical data** and run the analysis again. |
 | Route classification shows no crossings | A cut line lies inside the clip radius around an aerodrome (CLU-01). Move the cut line or reduce the radius. |

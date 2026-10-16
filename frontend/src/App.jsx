@@ -78,6 +78,7 @@ function Shell({ user, logout }) {
             <NavLink to="/admin/audit" className="nav">Audit log</NavLink>
           </div>
         )}
+        <VersionNote />
       </nav>
       <main className="main">
         <Routes>
@@ -102,6 +103,24 @@ function ProjectNav({ pid }) {
     <div className="group">
       <div className="group-title">This project</div>
       {items.map(([p, l]) => <NavLink key={p} end={p === ""} to={`/projects/${pid}/${p}`} className="nav">{l}</NavLink>)}
+    </div>
+  );
+}
+
+/** Shows the version, and warns when the web interface was built from older code than the server runs. */
+function VersionNote() {
+  const [server, setServer] = useState(null);
+  useEffect(() => { api.get("/config").then((c) => setServer(c.version)).catch(() => {}); }, []);
+  const ui = typeof __APP_VERSION__ === "undefined" ? "?" : __APP_VERSION__;
+  const stale = server && server !== ui;
+  return (
+    <div className="small muted" style={{ marginTop: "auto", padding: "16px 10px 6px" }}>
+      {stale ? (
+        <div className="badge warn" style={{ whiteSpace: "normal", lineHeight: 1.4 }}>
+          The web interface (v{ui}) is older than the server (v{server}). Rebuild it: run <code>npm run build</code> in <code>frontend</code>,
+          or <code>docker compose up -d --build</code>, then reload this page.
+        </div>
+      ) : <>CPTEA v{ui}</>}
     </div>
   );
 }

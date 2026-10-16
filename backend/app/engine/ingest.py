@@ -272,11 +272,22 @@ def fetch_fpl_api(project_id: int, dataset_id: int, params: dict, force=False, o
 
 # ------------------------------------------------------------------ AIS
 def upsert_fix(db, name, lat, lon, source, kind="waypoint", airac=""):
-    f = db.query(Fix).filter_by(name=name, source=source).first()
+    """Insert or update a fix. Sources can list the same name twice (NavEarth does), and the session does not
+    autoflush, so fixes added earlier in this session are remembered here instead of being inserted again.
+    Returns True when the name was already seen in this session (a duplicate)."""
+    cache = db.info.setdefault("fix_cache", {})
+    key = (name, source)
+    f = cache.get(key)
+    dup = f is not None
+    if f is None:
+        f = db.query(Fix).filter_by(name=name, source=source).first()
     if f:
         f.lat, f.lon, f.kind, f.airac = lat, lon, kind, airac
     else:
-        db.add(Fix(name=name, lat=lat, lon=lon, source=source, kind=kind, airac=airac))
+        f = Fix(name=name, lat=lat, lon=lon, source=source, kind=kind, airac=airac)
+        db.add(f)
+    cache[key] = f
+    return dup
 
 
 def import_fixes_csv(db, data: bytes, source="import") -> int:
@@ -424,7 +435,8 @@ def navearth_refresh(db, settings: dict | None = None) -> dict:
     st = settings or navearth_settings(db)
     url = check_wfs_url(st["url"])
     L = st["layers"]
-    out = {"fixes": 0, "navaids": 0, "airways": 0, "tma": 0, "errors": []}
+    out = {"fixes": 0, "navaids": 0, "airways": 0, "tma": 0, "duplicates": 0, "errors": []}
+    db.info.pop("fix_cache", None)
 
     def each(key):
         for name in layer_names(L.get(key, "")):
@@ -437,14 +449,18 @@ def navearth_refresh(db, settings: dict | None = None) -> dict:
         pr, g = f.get("properties") or {}, f.get("geometry") or {}
         name = _prop(pr, "name_rep", "name", "ident", "designator").upper()
         if name and g.get("type") == "Point" and g.get("coordinates"):
-            upsert_fix(db, name, g["coordinates"][1], g["coordinates"][0], "navearth", "waypoint", _prop(pr, "source_aip_rep", "airac"))
-            out["fixes"] += 1
+            if upsert_fix(db, name, g["coordinates"][1], g["coordinates"][0], "navearth", "waypoint", _prop(pr, "source_aip_rep", "airac")):
+                out["duplicates"] += 1
+            else:
+                out["fixes"] += 1
     for f in each("navaids"):
         pr, g = f.get("properties") or {}, f.get("geometry") or {}
         name = _prop(pr, "designator_nav", "designator", "ident", "name").upper()
         if name and g.get("type") == "Point" and g.get("coordinates"):
-            upsert_fix(db, name, g["coordinates"][1], g["coordinates"][0], "navearth", "navaid", _prop(pr, "source_aip_nav", "airac"))
-            out["navaids"] += 1
+            if upsert_fix(db, name, g["coordinates"][1], g["coordinates"][0], "navearth", "navaid", _prop(pr, "source_aip_nav", "airac")):
+                out["duplicates"] += 1
+            else:
+                out["navaids"] += 1
     segs = {}
     for f in each("routes"):
         pr = f.get("properties") or {}

@@ -43,7 +43,7 @@ p { margin: 0 0 8px; }
 .topbar .spacer { flex: 1; }
 .topbar .user { color: #cfe0ea; font-size: 13px; }
 .topbar button.link { color: #cfe0ea; }
-.side { background: var(--surface); border-right: 1px solid var(--line); padding: 14px 10px; overflow-y: auto; }
+.side { background: var(--surface); border-right: 1px solid var(--line); padding: 14px 10px; overflow-y: auto; display: flex; flex-direction: column; }
 .side .group { margin: 4px 0 14px; }
 .side .group-title { color: var(--muted); font-size: 12px; padding: 4px 10px; }
 .side a.nav { display: block; padding: 7px 10px; border-radius: var(--radius); color: var(--ink-2); }

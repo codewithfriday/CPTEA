@@ -4,7 +4,7 @@ from pathlib import Path
 
 APP_NAME = "CPTEA"
 APP_TITLE = "City-Pair Trajectory Efficiency Analyser"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("CPTEA_DATA_DIR", BASE_DIR.parent.parent / "data")).resolve()

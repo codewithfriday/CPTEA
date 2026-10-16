@@ -211,8 +211,13 @@ def navearth(admin: User = Depends(require_role("admin")), db: Session = Depends
     st = ingest.navearth_settings(db)
     try:
         res = ingest.navearth_refresh(db, st)
-    except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, f"NavEarth not reachable from the server: {e}")
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:  # noqa: BLE001  (layer download errors are collected per layer; this is a storage error)
+        db.rollback()
+        raise HTTPException(500, f"NavEarth data was downloaded but could not be saved; nothing was changed. {e.__class__.__name__}: {str(e)[:300]}")
+    finally:
+        db.info.pop("fix_cache", None)
     if not (res["fixes"] or res["navaids"] or res["airways"] or res["tma"]) and res["errors"]:
         raise HTTPException(502, "NavEarth not reachable from the server: " + "; ".join(res["errors"][:3]))
     audit(db, admin, "navearth_refreshed", "ais", st["url"], res)

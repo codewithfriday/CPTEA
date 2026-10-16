@@ -60,6 +60,21 @@ For development, use `./scripts/dev.sh`. It runs the API with auto-reload on por
 
 Run a single worker (`--workers 1`). Runs, plan fetches and report generation are background threads inside the API process.
 
+## Updating CPTEA
+
+The built web interface (`frontend/dist`) is not stored in git, so it must be rebuilt after every update. Otherwise the server runs the new code while browsers keep the old interface.
+
+```bash
+git pull
+docker compose up -d --build      # with Docker: --build is required; a plain restart reuses the old image
+# or, without Docker:
+./scripts/start.sh                # rebuilds the interface when its sources changed, then starts the server
+# or, if you start uvicorn yourself:
+(cd frontend && npm ci && npm run build)   # then restart the server
+```
+
+The version is shown at the bottom of the left bar. If the interface is older than the server, a warning appears there instead.
+
 ## Configuration
 
 All settings are environment variables; see [`.env.example`](.env.example). The main ones:

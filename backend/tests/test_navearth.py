@@ -12,8 +12,13 @@ TMA = {"type": "Feature", "id": "tma_polygon.128",
        "properties": {"gid": 128, "layer": "BANJARMASIN TMA", "upper": "FL245", "lower": "10000 ft", "class": "B",
                       "unt_srvc": "Banjarmasin APP", "source_aip": "AIRAC AIP AMDT 120 / 08 SEP 22"}}
 LAYERS = {
+    # NavEarth lists some reporting points twice (e.g. LEBEG): a refresh must not fail on them
     "enroute_chart:rep_point": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [98.9, 7.5]},
-                                 "properties": {"name_rep": "TUMGA", "source_aip_rep": "AIP"}}],
+                                 "properties": {"name_rep": "TUMGA", "source_aip_rep": "AIP"}},
+                                {"type": "Feature", "geometry": {"type": "Point", "coordinates": [100.5678, -1.8869]},
+                                 "properties": {"name_rep": "LEBEG", "source_aip_rep": "AIRAC AIP AMDT 142 / 21 MAR 24"}},
+                                {"type": "Feature", "geometry": {"type": "Point", "coordinates": [100.5678, -1.8869]},
+                                 "properties": {"name_rep": "LEBEG", "source_aip_rep": "AIRAC AIP AMDT 142 / 21 MAR 24"}}],
     "enroute_chart:nav_aid_enr": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [115.2, -8.7]},
                                    "properties": {"designator_nav": "BLI"}}],
     "enroute_chart:ats_route_international": [{"type": "Feature", "geometry": None,
@@ -84,9 +89,13 @@ def test_settings_and_refresh(client, admin, monkeypatch):
     assert any(r["ok"] and "layer" in r["properties"] for r in t if r["group"] == "tma")
     assert any(not r["ok"] for r in t if r["group"] == "routes")
     r = client.post("/api/ais/navearth-refresh", headers=admin).json()
-    assert (r["fixes"], r["navaids"], r["airways"], r["tma"]) == (1, 1, 1, 1) and not r["errors"]
-    # refreshing twice replaces the TMA set instead of duplicating it
-    client.post("/api/ais/navearth-refresh", headers=admin)
+    assert (r["fixes"], r["navaids"], r["airways"], r["tma"], r["duplicates"]) == (2, 1, 1, 1, 1) and not r["errors"]
+    # refreshing twice updates fixes and replaces the TMA set instead of duplicating them
+    assert client.post("/api/ais/navearth-refresh", headers=admin).status_code == 200
+    from app.db import SessionLocal as _S
+    from app.models import Fix
+    with _S() as db:
+        assert db.query(Fix).filter_by(name="LEBEG", source="navearth").count() == 1
     g = client.get("/api/ais/geojson", headers=admin).json()
     tma = [f for f in g["features"] if f["properties"]["layer"] == "tma"]
     assert len(tma) == 1 and tma[0]["properties"]["name"] == "BANJARMASIN TMA" and tma[0]["properties"]["class"] == "B"
