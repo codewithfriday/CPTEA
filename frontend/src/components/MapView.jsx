@@ -4,6 +4,8 @@ import "leaflet/dist/leaflet.css";
 import { api } from "../api";
 
 let aisCache = null;
+/** Forget the cached AIS layers (after an import or a NavEarth refresh). */
+export function resetAis() { aisCache = null; }
 async function ais() {
   if (!aisCache) aisCache = api.get("/ais/geojson").catch(() => ({ features: [], fixes: [] }));
   return aisCache;
@@ -65,7 +67,10 @@ export default function MapView({ draw, deps = [], tall, layers = true, height, 
             onEachFeature: (f, l) => l.bindTooltip(`${f.properties.name} ${f.properties.ansp || ""}`) });
         const fx = L.layerGroup((g.fixes || []).map((f) => L.circleMarker([f.lat, f.lon], { radius: 2, color: "#3d5163", weight: 1 })
           .bindTooltip(f.name)));
-        base.current = { "Airways": airways, "FIR boundaries": firs, "Waypoints": fx };
+        const tmas = L.geoJSON({ type: "FeatureCollection", features: g.features.filter((f) => f.properties.layer === "tma") },
+          { style: { color: "#6250d6", weight: 1, fill: true, fillOpacity: 0.04, opacity: 0.7 },
+            onEachFeature: (f, l) => { const p = f.properties; l.bindTooltip(`<b>${p.name}</b>${p.class ? ` · class ${p.class}` : ""}${p.lower ? `<br>${p.lower} – ${p.upper || ""}` : ""}${p.ansp ? `<br>${p.ansp}` : ""}`); } });
+        base.current = { "Airways": airways, "FIR boundaries": firs, "TMA boundaries": tmas, "Waypoints": fx };
         Object.entries(base.current).forEach(([k, l]) => show.includes(k) && l.addTo(m));
         L.control.layers(null, base.current, { collapsed: true }).addTo(m);
       });

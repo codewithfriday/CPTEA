@@ -8,7 +8,7 @@ It covers:
 - **Data loading.**
   - ADS-B tracks: FR24 CSV files, a ZIP, a folder or a server path.
   - Flight plans: AirNav FPL archive files (JSON or Parquet), or the AirNav flight data API, which needs the VPN.
-  - Aeronautical data: NavEarth WFS refresh, fixes and airways from CSV, FIR boundaries from GeoJSON.
+  - Aeronautical data: NavEarth WFS refresh (points, navaids, ATS routes, TMA polygons, with an address administrators can edit), fixes and airways from CSV, FIR boundaries from GeoJSON.
 - **All metrics of the method.**
   - Path extension against the filed route at several en-route boundaries.
   - En-route time and its variance, lateral deviation, and efficiency by FIR.
@@ -71,7 +71,7 @@ All settings are environment variables; see [`.env.example`](.env.example). The 
 | `CPTEA_DB_URL` | SQLite in the data folder | SQLAlchemy URL, for example PostgreSQL |
 | `CPTEA_ADMIN_USERNAME` / `CPTEA_ADMIN_PASSWORD` | `admin` / `ChangeMe!2026` | First administrator, created on first start only |
 | `CPTEA_FLIGHT_API_URL` / `CPTEA_FLIGHT_API_TOKEN` | `http://172.20.17.117:3000` / empty | AirNav flight data API (VPN only) |
-| `CPTEA_NAVEARTH_WFS` | NavEarth GeoServer | Aeronautical data source |
+| `CPTEA_NAVEARTH_WFS` | NavEarth `enroute_chart` WFS (TMA polygon GetFeature link) | Default NavEarth address. Administrators can change it, and the layer names, on the Aeronautical data page. A saved value overrides this variable. |
 | `CPTEA_TILE_URL` | OpenStreetMap | Map tiles. Leave it empty on air-gapped servers: maps then use the built-in coastline. |
 
 ## Tests

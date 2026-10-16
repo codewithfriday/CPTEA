@@ -27,7 +27,8 @@ ADMIN_PASSWORD = os.environ.get("CPTEA_ADMIN_PASSWORD", "ChangeMe!2026")
 # External sources
 NAVEARTH_WFS = os.environ.get(
     "CPTEA_NAVEARTH_WFS",
-    "https://app-pia.airnavindonesia.co.id/geoserver/enroute_chart/ows",
+    "https://app-pia.airnavindonesia.co.id/geoserver/enroute_chart/ows?service=WFS&version=1.0.0&request=GetFeature"
+    "&typeName=enroute_chart:tma_polygon&outputFormat=application/json",
 )
 FLIGHT_API_URL = os.environ.get("CPTEA_FLIGHT_API_URL", "http://172.20.17.117:3000")
 FLIGHT_API_TOKEN = os.environ.get("CPTEA_FLIGHT_API_TOKEN", "")

@@ -149,7 +149,19 @@ class Airspace(Base):
     code: Mapped[str] = mapped_column(String(16), index=True)
     name: Mapped[str] = mapped_column(String(128), default="")
     ansp: Mapped[str] = mapped_column(String(64), default="")
+    kind: Mapped[str] = mapped_column(String(16), default="fir")  # fir (used for metric 6) | tma (map layer only)
+    source: Mapped[str] = mapped_column(String(32), default="import")
+    props: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # class, limits, unit (shown on the map)
     geometry: Mapped[dict] = mapped_column(JSON, default=dict)  # GeoJSON geometry
+
+
+class AppSetting(Base):
+    """System-wide settings an administrator changes in the interface (e.g. the NavEarth WFS address)."""
+    __tablename__ = "app_settings"
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_by: Mapped[str] = mapped_column(String(64), default="")
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class ParameterSet(Base):

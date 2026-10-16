@@ -15,8 +15,24 @@ from .routers import auth, data, projects, reports, runs
 from .security import hash_password
 
 
+def migrate():
+    """Add columns introduced after a database was created (create_all only adds missing tables)."""
+    from sqlalchemy import inspect, text
+    insp = inspect(engine)
+    cols = {c["name"] for c in insp.get_columns("airspaces")} if insp.has_table("airspaces") else None
+    if cols is not None:
+        with engine.begin() as con:
+            if "kind" not in cols:
+                con.execute(text("ALTER TABLE airspaces ADD COLUMN kind VARCHAR(16) DEFAULT 'fir'"))
+            if "props" not in cols:
+                con.execute(text("ALTER TABLE airspaces ADD COLUMN props JSON"))
+            if "source" not in cols:
+                con.execute(text("ALTER TABLE airspaces ADD COLUMN source VARCHAR(32) DEFAULT 'import'"))
+
+
 def bootstrap():
     Base.metadata.create_all(engine)
+    migrate()
     db = SessionLocal()
     try:
         if not db.query(User).count():

@@ -134,7 +134,8 @@ def ais_geojson(user: User = Depends(current_user), db: Session = Depends(get_db
             feats.append({"type": "Feature", "properties": {"layer": "airway", "name": a.name, "source": a.source},
                           "geometry": {"type": "LineString", "coordinates": coords}})
     for s in db.query(Airspace).all():
-        feats.append({"type": "Feature", "properties": {"layer": "airspace", "name": s.code, "ansp": s.ansp}, "geometry": s.geometry})
+        feats.append({"type": "Feature", "properties": {"layer": "tma" if s.kind == "tma" else "airspace", "name": s.name or s.code,
+                                                        "code": s.code, "ansp": s.ansp, **(s.props or {})}, "geometry": s.geometry})
     return {"type": "FeatureCollection", "features": feats,
             "fixes": [{"name": n, "lat": v[0], "lon": v[1]} for n, v in fx.items()]}
 
@@ -162,11 +163,57 @@ async def ais_import(kind: str = Form(...), file: UploadFile = File(...), user: 
     return {"imported": n}
 
 
+@router.get("/settings/navearth")
+def get_navearth(user: User = Depends(current_user), db: Session = Depends(get_db)):
+    st = ingest.navearth_settings(db)
+    return {**st, "default": ingest.navearth_defaults(), "labels": ingest.LAYER_LABELS}
+
+
+@router.put("/settings/navearth")
+def put_navearth(body: dict, admin: User = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Administrators change the NavEarth WFS address and layer names; an empty body restores the defaults."""
+    from ..models import AppSetting, now
+    before = ingest.navearth_settings(db)
+    row = db.get(AppSetting, ingest.NAVEARTH_KEY)
+    if body.get("reset"):
+        if row:
+            db.delete(row)
+    else:
+        try:
+            url = ingest.check_wfs_url(body.get("url", ""))
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        layers = {k: ", ".join(ingest.layer_names(str(v))) for k, v in (body.get("layers") or {}).items() if k in ingest.DEFAULT_LAYERS}
+        if not row:
+            row = AppSetting(key=ingest.NAVEARTH_KEY)
+            db.add(row)
+        row.value = {"url": url, "layers": {**before["layers"], **layers}}
+        row.updated_by, row.updated_at = admin.username, now()
+    db.commit()
+    after = ingest.navearth_settings(db)
+    audit(db, admin, "navearth_settings_changed", "setting", ingest.NAVEARTH_KEY,
+          {"before": {"url": before["url"], "layers": before["layers"]}, "after": {"url": after["url"], "layers": after["layers"]}})
+    return {**after, "default": ingest.navearth_defaults(), "labels": ingest.LAYER_LABELS}
+
+
+@router.post("/ais/navearth-test")
+def navearth_test(body: dict, admin: User = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Try an address (saved or not) by fetching one feature per layer."""
+    st = ingest.navearth_settings(db)
+    try:
+        return {"results": ingest.navearth_test(body.get("url") or st["url"], {**st["layers"], **(body.get("layers") or {})})}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @router.post("/ais/navearth-refresh")
 def navearth(admin: User = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    st = ingest.navearth_settings(db)
     try:
-        res = ingest.navearth_refresh(db)
+        res = ingest.navearth_refresh(db, st)
     except Exception as e:  # noqa: BLE001
         raise HTTPException(502, f"NavEarth not reachable from the server: {e}")
-    audit(db, admin, "navearth_refreshed", "ais", "", res)
+    if not (res["fixes"] or res["navaids"] or res["airways"] or res["tma"]) and res["errors"]:
+        raise HTTPException(502, "NavEarth not reachable from the server: " + "; ".join(res["errors"][:3]))
+    audit(db, admin, "navearth_refreshed", "ais", st["url"], res)
     return res

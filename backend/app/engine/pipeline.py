@@ -185,7 +185,7 @@ def execute(run_id: int):
         plans, unresolved = build_plans(db, project.id, flights, params, fixes, airways)
         groups = dict(tuple(pts.groupby("fid", sort=False)))
         sink = {"xt": [], "levels": [], "changes": [], "waypoints": [], "fir": []}
-        polys = load_polygons(db.query(Airspace).all())
+        polys = load_polygons(db.query(Airspace).filter(Airspace.kind != "tma").all())
         rows = []
         inc = flights[flights.included]
         n = len(inc)

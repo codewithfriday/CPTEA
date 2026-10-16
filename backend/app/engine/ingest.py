@@ -316,34 +316,145 @@ def seed_navdata(db):
         import_airways_csv(db, (SEED / "airways_seed.csv").read_bytes())
 
 
-def navearth_refresh(db, base: str | None = None) -> dict:
-    """FR-DATA-12: fetch fixes, navaids and ATS routes from NavEarth GeoServer (WFS, GeoJSON)."""
-    base = base or config.NAVEARTH_WFS
-    out = {"fixes": 0, "navaids": 0, "airways": 0}
+# ------------------------------------------------------------ NavEarth WFS (FR-DATA-12)
+NAVEARTH_KEY = "navearth_wfs"
+DEFAULT_LAYERS = {
+    "points": "enroute_chart:rep_point",
+    "navaids": "enroute_chart:nav_aid_enr",
+    "routes": "enroute_chart:ats_route_international, enroute_chart:ats_route_rnp_upper",
+    "tma": "enroute_chart:tma_polygon",
+}
+LAYER_LABELS = {"points": "Reporting points", "navaids": "En-route navaids", "routes": "ATS routes", "tma": "TMA polygons"}
 
-    def layer(name):
-        r = httpx.get(base, params={"service": "WFS", "version": "1.0.0", "request": "GetFeature",
-                                    "typeName": f"enroute_chart:{name}", "outputFormat": "application/json"}, timeout=60)
-        r.raise_for_status()
-        return r.json().get("features", [])
 
-    for f in layer("rep_point"):
-        pr, g = f["properties"], f.get("geometry") or {}
-        if g.get("coordinates"):
-            upsert_fix(db, pr["name_rep"].strip(), g["coordinates"][1], g["coordinates"][0], "navearth", "waypoint",
-                       pr.get("source_aip_rep") or "")
+def navearth_defaults() -> dict:
+    return {"url": config.NAVEARTH_WFS, "layers": dict(DEFAULT_LAYERS)}
+
+
+def navearth_settings(db) -> dict:
+    """The saved WFS address and layer names, falling back to the defaults (CPTEA_NAVEARTH_WFS)."""
+    from ..models import AppSetting
+    row = db.get(AppSetting, NAVEARTH_KEY)
+    d = navearth_defaults()
+    if row and row.value:
+        d["url"] = row.value.get("url") or d["url"]
+        d["layers"] = {**d["layers"], **{k: v for k, v in (row.value.get("layers") or {}).items() if k in DEFAULT_LAYERS}}
+        d.update(saved=True, updated_by=row.updated_by, updated_at=row.updated_at)
+    else:
+        d.update(saved=False, updated_by="", updated_at=None)
+    return d
+
+
+def check_wfs_url(url: str) -> str:
+    from urllib.parse import urlsplit
+    url = (url or "").strip()
+    u = urlsplit(url)
+    if u.scheme not in ("http", "https") or not u.netloc:
+        raise ValueError("The WFS address must start with http:// or https:// and include a host")
+    return url
+
+
+def wfs_request(url: str, type_name: str, limit: int | None = None) -> tuple[str, dict]:
+    """Endpoint and query for one layer. The address may be a bare endpoint (…/ows) or a full GetFeature link:
+    its service, version and output format are kept, and typeName is replaced by the layer asked for."""
+    from urllib.parse import parse_qsl, urlsplit, urlunsplit
+    u = urlsplit(url.strip())
+    base = urlunsplit((u.scheme, u.netloc, u.path, "", ""))
+    q = {k: v for k, v in parse_qsl(u.query, keep_blank_values=True)}
+    low = {k.lower(): k for k in q}
+    params = {k: v for k, v in q.items() if k.lower() not in ("typename", "typenames", "maxfeatures", "count", "request", "service")}
+    params["service"] = "WFS"
+    params["request"] = "GetFeature"
+    version = q.get(low.get("version", ""), "1.0.0") or "1.0.0"
+    params[low.get("version", "version")] = version
+    if "outputformat" not in low:
+        params["outputFormat"] = "application/json"
+    v2 = version.startswith("2")
+    params["typeNames" if v2 else "typeName"] = type_name
+    if limit:
+        params["count" if v2 else "maxFeatures"] = limit
+    return base, params
+
+
+def layer_names(value: str) -> list[str]:
+    return [x.strip() for x in re.split(r"[,\s]+", value or "") if x.strip()]
+
+
+def _fetch_layer(url: str, type_name: str, limit: int | None = None, timeout=60) -> list:
+    base, params = wfs_request(url, type_name, limit)
+    r = httpx.get(base, params=params, timeout=timeout)
+    r.raise_for_status()
+    try:
+        data = r.json()
+    except ValueError:
+        # GeoServer answers errors as XML with HTTP 200
+        txt = re.sub(r"<[^>]+>", " ", r.text)
+        raise ValueError("The server did not return GeoJSON: " + " ".join(txt.split())[:200]) from None
+    return data.get("features", [])
+
+
+def _prop(pr: dict, *keys, default=""):
+    low = {k.lower(): v for k, v in pr.items()}
+    for k in keys:
+        v = low.get(k.lower())
+        if v not in (None, ""):
+            return str(v).strip()
+    return default
+
+
+def navearth_test(url: str, layers: dict) -> list[dict]:
+    """Fetch one feature from every configured layer and report what came back."""
+    url = check_wfs_url(url)
+    out = []
+    for key, value in layers.items():
+        for name in layer_names(value):
+            try:
+                feats = _fetch_layer(url, name, limit=1, timeout=20)
+                props = sorted((feats[0].get("properties") or {}).keys()) if feats else []
+                out.append({"group": key, "layer": name, "ok": True, "message": "reachable" if feats else "reachable, no features",
+                            "properties": props[:12]})
+            except Exception as e:  # noqa: BLE001
+                out.append({"group": key, "layer": name, "ok": False, "message": f"{e.__class__.__name__}: {e}"[:300]})
+    return out
+
+
+def navearth_refresh(db, settings: dict | None = None) -> dict:
+    """Load reporting points, navaids, ATS routes and TMA polygons from the NavEarth WFS. Each layer is loaded
+    independently; a failing layer is reported and the others are still imported."""
+    st = settings or navearth_settings(db)
+    url = check_wfs_url(st["url"])
+    L = st["layers"]
+    out = {"fixes": 0, "navaids": 0, "airways": 0, "tma": 0, "errors": []}
+
+    def each(key):
+        for name in layer_names(L.get(key, "")):
+            try:
+                yield from _fetch_layer(url, name)
+            except Exception as e:  # noqa: BLE001
+                out["errors"].append(f"{name}: {e.__class__.__name__}: {e}"[:300])
+
+    for f in each("points"):
+        pr, g = f.get("properties") or {}, f.get("geometry") or {}
+        name = _prop(pr, "name_rep", "name", "ident", "designator").upper()
+        if name and g.get("type") == "Point" and g.get("coordinates"):
+            upsert_fix(db, name, g["coordinates"][1], g["coordinates"][0], "navearth", "waypoint", _prop(pr, "source_aip_rep", "airac"))
             out["fixes"] += 1
-    for f in layer("nav_aid_enr"):
-        pr, g = f["properties"], f.get("geometry") or {}
-        if g.get("coordinates"):
-            upsert_fix(db, pr["designator_nav"].strip(), g["coordinates"][1], g["coordinates"][0], "navearth", "navaid",
-                       pr.get("source_aip_nav") or "")
+    for f in each("navaids"):
+        pr, g = f.get("properties") or {}, f.get("geometry") or {}
+        name = _prop(pr, "designator_nav", "designator", "ident", "name").upper()
+        if name and g.get("type") == "Point" and g.get("coordinates"):
+            upsert_fix(db, name, g["coordinates"][1], g["coordinates"][0], "navearth", "navaid", _prop(pr, "source_aip_nav", "airac"))
             out["navaids"] += 1
     segs = {}
-    for lname in ("ats_route_international", "ats_route_rnp_upper"):
-        for f in layer(lname):
-            pr = f["properties"]
-            segs.setdefault(pr["name_route"].strip(), []).append((pr.get("segment_sort") or 0, pr["from_name"].strip(), pr["to_name"].strip()))
+    for f in each("routes"):
+        pr = f.get("properties") or {}
+        name, a, b = _prop(pr, "name_route", "name", "designator").upper(), _prop(pr, "from_name").upper(), _prop(pr, "to_name").upper()
+        if name and a and b:
+            try:
+                sort = float(_prop(pr, "segment_sort", default="0"))
+            except ValueError:
+                sort = 0.0
+            segs.setdefault(name, []).append((sort, a, b))
     for name, lst in segs.items():
         lst.sort()
         seq = []
@@ -360,6 +471,19 @@ def navearth_refresh(db, base: str | None = None) -> dict:
         else:
             db.add(Airway(name=name, fixes=seq, source="navearth"))
         out["airways"] += 1
+    tma = [f for f in each("tma") if (f.get("geometry") or {}).get("type") in ("Polygon", "MultiPolygon")]
+    if tma or not layer_names(L.get("tma", "")):
+        # replace the NavEarth TMA set as a whole: sectors often share a name, so there is no stable key to update
+        db.query(Airspace).filter_by(source="navearth", kind="tma").delete()
+        for i, f in enumerate(tma):
+            pr = f.get("properties") or {}
+            name = _prop(pr, "layer", "name_tma", "tma_name", "name", "nama", "designator", "ident",
+                         default=str(f.get("id") or f"TMA {i + 1}"))
+            code = _prop(pr, "designator", "code", "ident", default=name)
+            info = {k: _prop(pr, k) for k in ("class", "lower", "upper", "unt_srvc", "callsign", "freq", "source_aip") if _prop(pr, k)}
+            db.add(Airspace(code=code.upper()[:16], name=name[:128], ansp=_prop(pr, "unt_srvc", "ansp", "unit")[:64],
+                            kind="tma", source="navearth", props=info, geometry=f["geometry"]))
+            out["tma"] += 1
     db.commit()
     return out
 
@@ -373,7 +497,8 @@ def import_airspace(db, data: bytes) -> int:
         code = str(pr.get("code") or pr.get("ICAO") or pr.get("id") or pr.get("name") or "").upper()
         if not code:
             continue
-        a = db.query(Airspace).filter_by(code=code).first() or Airspace(code=code)
+        kind = "tma" if str(pr.get("kind") or pr.get("type") or "").lower() == "tma" else "fir"
+        a = db.query(Airspace).filter_by(code=code, kind=kind).first() or Airspace(code=code, kind=kind, source="import")
         a.name = str(pr.get("name") or code)
         a.ansp = str(pr.get("ansp") or pr.get("ANSP") or "")
         a.geometry = f.get("geometry") or {}

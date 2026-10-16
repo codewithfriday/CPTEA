@@ -63,7 +63,7 @@ Within a project, the owner can share it with another user at Viewer, Reviewer o
 - **Project header.** Shows the city pair as a route ribbon from ADEP to ADES, with the project period underneath.
 - **Run picker.** Most project pages have one. It chooses which analysis run the page shows, and your choice carries across pages.
 - **Chart downloads.** Every chart has **PNG**, **SVG** and **CSV** buttons. CSV gives the numbers behind the chart.
-- **Map layers.** Every map has a layer button at the top right that switches airways, waypoints and FIR boundaries on and off. When the server has no internet access, the maps still show a built-in coastline.
+- **Map layers.** Every map has a layer button at the top right that switches airways, waypoints, FIR boundaries and TMA boundaries on and off. When the server has no internet access, the maps still show a built-in coastline.
 
 # 3. Projects
 
@@ -183,15 +183,34 @@ A CHG message updates the plan it refers to, and a CNL message cancels it. *Flig
 
 Route expansion turns the filed Item 15 (fixes and airways) into coordinates. The fixes and airways it uses live under **Aeronautical data** in the left bar, and every project shares them.
 
-![Aeronautical data](img/22_ais.png)
+![Aeronautical data: the NavEarth address, with its layer names open](img/22_ais.png)
 
-- **NavEarth (AirNav AIS).** An Administrator chooses **Refresh from NavEarth** to load reporting points, navaids and ATS routes from the NavEarth WFS. The CPTEA server needs access to NavEarth for this. NavEarth data takes precedence over imported data.
+- **NavEarth (AirNav AIS).** The panel at the top of the page shows the WFS address CPTEA loads from. An Administrator chooses **Refresh from NavEarth** to load four layers:
+  - reporting points;
+  - en-route navaids;
+  - ATS routes;
+  - TMA polygons.
+
+  NavEarth data takes precedence over imported data. The CPTEA server, not your browser, must be able to reach NavEarth.
+
+  TMA polygons are drawn on every map as **TMA boundaries**; hover over one for its class, limits and approach unit. They are not used for the efficiency-by-FIR metric, which only uses imported FIR boundaries.
 - **Fixes CSV** (Analyst). Columns `name, lat, lon` and optionally `kind, airac`.
 - **Airways CSV** (Analyst). Columns `airway, seq, fix`, with one row per fix in order.
 - **FIR / airspace GeoJSON** (Administrator). Polygons with a `code` property such as WIIF or VTBB. These are used for the efficiency-by-FIR metric.
 - **Add or correct a fix.** Use this when a dataset's plan check reports an unresolved fix.
 
 CPTEA ships with the fixes and airways of the VTBS–WADD routes, so the example works without NavEarth access.
+
+**Changing the NavEarth address** (Administrator).
+
+1. In **WFS address**, paste either the GeoServer endpoint (ending in `/ows`) or a full GetFeature link. The default is the AirNav NavEarth link to the `enroute_chart:tma_polygon` layer. From a full link, CPTEA keeps the version and output format, and asks for each layer in turn.
+2. If the new server names its layers differently, open **Layer names** and change them. Separate several ATS route layers with commas. Leave a layer empty to skip it.
+3. Choose **Test connection**. CPTEA fetches one feature from each layer and shows, per layer, whether it answered and which fields it returned.
+4. Choose **Save address**, then **Refresh from NavEarth**.
+
+**Discard changes** abandons unsaved edits. **Restore default** returns to the shipped address and layer names. Every change is recorded in the audit log with the old and new address.
+
+Other users see the address, but only an Administrator can change it.
 
 **Unresolved fixes.**
 
@@ -530,7 +549,8 @@ Entries cannot be changed. Filter by action or user, or choose **Download CSV**.
 | What you see | What to do |
 |---|---|
 | "AirNav flight data API not reachable" | The CPTEA server is not on the AirNav VPN. Connect the server to the VPN and choose **Check connection** again, or import archive files instead. |
-| "NavEarth not reachable from the server" | The server cannot reach NavEarth. Use the shipped VTBS–WADD data, or import fixes and airways as CSV. |
+| "NavEarth not reachable from the server" | The server cannot reach the WFS address. Choose **Test connection** to see which layers fail. Check the address and the server's network or VPN access. Meanwhile, use the shipped VTBS–WADD data, or import fixes and airways as CSV. |
+| Test connection: "The server did not return GeoJSON" | The layer name does not exist on that server, or the address is not a WFS endpoint. Correct it under **Layer names**. |
 | Many flights show *plan not expandable* | A fix in the middle of their routes is unknown. The dataset's plan check names the fixes. Add them under **Aeronautical data** and run the analysis again. |
 | Route classification shows no crossings | A cut line lies inside the clip radius around an aerodrome (CLU-01). Move the cut line or reduce the radius. |
 | Too many outliers | Raise CLU-05 or CLU-05b. Tactical directs move tracks a little, but they are not separate routes. |
