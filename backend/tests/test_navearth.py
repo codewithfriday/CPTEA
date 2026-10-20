@@ -23,7 +23,11 @@ LAYERS = {
                                    "properties": {"designator_nav": "BLI"}}],
     "enroute_chart:ats_route_international": [{"type": "Feature", "geometry": None,
                                                "properties": {"name_route": "Q99", "from_name": "AAA", "to_name": "BBB", "segment_sort": 1}}],
-    "enroute_chart:ats_route_rnp_upper": [],
+    # real NavEarth N875: Indonesian part only, two segments without a sort number
+    "enroute_chart:ats_route_rnp_upper": [
+        {"type": "Feature", "geometry": None, "properties": {"name_route": "N875", "segment_sort": a, "from_name": b, "to_name": c}}
+        for a, b, c in [(None, "OMLIV", "UPLAM"), (None, "UPLAM", "BOBOB"), (7, "AKDAT", "LEBIN"), (8, "LEBIN", "OMLIV"),
+                        (9, "BOBOB", "ESPIT"), (10, "ESPIT", "NIMIX"), (11, "NIMIX", "ARUPA"), (12, "ARUPA", "PNK")]],
     "enroute_chart:tma_polygon": [TMA],
 }
 
@@ -89,7 +93,7 @@ def test_settings_and_refresh(client, admin, monkeypatch):
     assert any(r["ok"] and "layer" in r["properties"] for r in t if r["group"] == "tma")
     assert any(not r["ok"] for r in t if r["group"] == "routes")
     r = client.post("/api/ais/navearth-refresh", headers=admin).json()
-    assert (r["fixes"], r["navaids"], r["airways"], r["tma"], r["duplicates"]) == (2, 1, 1, 1, 1) and not r["errors"]
+    assert (r["fixes"], r["navaids"], r["airways"], r["tma"], r["duplicates"]) == (2, 1, 2, 1, 1) and not r["errors"]
     # refreshing twice updates fixes and replaces the TMA set instead of duplicating them
     assert client.post("/api/ais/navearth-refresh", headers=admin).status_code == 200
     from app.db import SessionLocal as _S
@@ -115,3 +119,28 @@ def test_only_admin_changes_address(client, admin):
     h = {"Authorization": f"Bearer {tok}"}
     assert client.get("/api/settings/navearth", headers=h).status_code == 200
     assert client.put("/api/settings/navearth", headers=h, json={"url": "https://x/ows"}).status_code == 403
+
+
+def test_chain_segments_ignores_missing_sort():
+    from app.engine.ingest import chain_segments
+    segs = [(None, "OMLIV", "UPLAM"), (None, "UPLAM", "BOBOB"), (7, "AKDAT", "LEBIN"), (8, "LEBIN", "OMLIV"),
+            (9, "BOBOB", "ESPIT"), (10, "ESPIT", "NIMIX"), (11, "NIMIX", "ARUPA"), (12, "ARUPA", "PNK")]
+    assert chain_segments(segs) == [["AKDAT", "LEBIN", "OMLIV", "UPLAM", "BOBOB", "ESPIT", "NIMIX", "ARUPA", "PNK"]]
+    # split airway -> two chains, longest first
+    assert chain_segments([(1, "A", "B"), (2, "B", "C"), (3, "X", "Y")]) == [["A", "B", "C"], ["X", "Y"]]
+
+
+def test_partial_navearth_airway_does_not_hide_full_one():
+    """VTBS-WADD plans file ENREP N875 PNK; NavEarth's N875 starts at AKDAT. The full imported N875 must be used."""
+    from app.engine.fpl import airway_path, expand_route
+    full = ["ENREP", "NOPAT", "DAMOG", "SUSAR", "MUMSO", "ELGOR", "AKDAT", "LEBIN", "OMLIV", "UPLAM", "BOBOB", "ESPIT",
+            "NIMIX", "ARUPA", "PNK"]
+    navearth = ["AKDAT", "LEBIN", "OMLIV", "UPLAM", "BOBOB", "ESPIT", "NIMIX", "ARUPA", "PNK"]
+    fixes = {n: (0.0, float(i)) for i, n in enumerate(full + ["BUT", "KOLTA", "PKN", "SUGIK", "BUKTU"])}
+    airways = {"N875": [navearth, full], "G464": [["BLI", "KOLTA", "PKN", "SUGIK", "BUKTU", "PNK"]]}
+    names, blocking, edge = expand_route("N0490F390 ENREP N875 PNK G464 KOLTA", fixes, airways)
+    assert not blocking and names[:2] == ["ENREP", "NOPAT"] and names[-3:] == ["SUGIK", "PKN", "KOLTA"]
+    # reverse direction, and joining two partial sources that only share AKDAT
+    assert airway_path([navearth, full], "PNK", "ENREP")[0] == "ARUPA"
+    assert airway_path([["ENREP", "NOPAT", "AKDAT"], navearth], "ENREP", "PNK") == ["NOPAT"] + navearth[:-1]
+    assert airway_path([navearth], "ENREP", "PNK") is None

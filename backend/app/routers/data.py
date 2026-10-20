@@ -120,7 +120,8 @@ def add_fix(body: dict, user: User = Depends(require_role("analyst")), db: Sessi
 
 @router.get("/ais/airways")
 def airways(user: User = Depends(current_user), db: Session = Depends(get_db)):
-    return [{"id": a.id, "name": a.name, "source": a.source, "fixes": a.fixes} for a in db.query(Airway).order_by(Airway.name).all()]
+    return [{"id": a.id, "name": a.name, "source": a.source, "fixes": [f for f in a.fixes if f], "chains": ingest.split_chains(a.fixes)}
+            for a in db.query(Airway).order_by(Airway.name, Airway.source).all()]
 
 
 @router.get("/ais/geojson")
@@ -129,10 +130,11 @@ def ais_geojson(user: User = Depends(current_user), db: Session = Depends(get_db
     fx = {f.name: (f.lat, f.lon) for f in db.query(Fix).all()}
     feats = []
     for a in db.query(Airway).all():
-        coords = [[fx[n][1], fx[n][0]] for n in a.fixes if n in fx]
-        if len(coords) > 1:
+        lines = [[[fx[n][1], fx[n][0]] for n in c if n in fx] for c in ingest.split_chains(a.fixes)]
+        lines = [ln for ln in lines if len(ln) > 1]
+        if lines:
             feats.append({"type": "Feature", "properties": {"layer": "airway", "name": a.name, "source": a.source},
-                          "geometry": {"type": "LineString", "coordinates": coords}})
+                          "geometry": {"type": "MultiLineString", "coordinates": lines}})
     for s in db.query(Airspace).all():
         feats.append({"type": "Feature", "properties": {"layer": "tma" if s.kind == "tma" else "airspace", "name": s.name or s.code,
                                                         "code": s.code, "ansp": s.ansp, **(s.props or {})}, "geometry": s.geometry})

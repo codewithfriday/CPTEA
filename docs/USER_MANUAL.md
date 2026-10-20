@@ -192,7 +192,7 @@ Route expansion turns the filed Item 15 (fixes and airways) into coordinates. Th
   - ATS routes;
   - TMA polygons.
 
-  NavEarth data takes precedence over imported data. The CPTEA server, not your browser, must be able to reach NavEarth.
+  NavEarth fix coordinates take precedence over imported ones. Airways are combined, not replaced. NavEarth only covers Indonesian airspace, so an international airway such as N875 comes from NavEarth for its Indonesian part (AKDAT–PNK). The rest comes from the imported data (ENREP–AKDAT). The CPTEA server, not your browser, must be able to reach NavEarth.
 
   TMA polygons are drawn on every map as **TMA boundaries**; hover over one for its class, limits and approach unit. They are not used for the efficiency-by-FIR metric, which only uses imported FIR boundaries.
 - **Fixes CSV** (Analyst). Columns `name, lat, lon` and optionally `kind, airac`.
@@ -553,6 +553,7 @@ Entries cannot be changed. Filter by action or user, or choose **Download CSV**.
 | "NavEarth not reachable from the server" | The server cannot reach the WFS address. Choose **Test connection** to see which layers fail. Check the address and the server's network or VPN access. Meanwhile, use the shipped VTBS–WADD data, or import fixes and airways as CSV. |
 | A feature described in this manual is missing, or the left bar warns that "the web interface is older than the server" | The interface was not rebuilt after an update. Ask the administrator to rebuild it (see "Updating CPTEA" in the README), then reload the page. |
 | Test connection: "The server did not return GeoJSON" | The layer name does not exist on that server, or the address is not a WFS endpoint. Correct it under **Layer names**. |
+| The Horizontal efficiency section is empty, or a yellow notice says only a few plans have a usable reference route | The filed routes could not be expanded. The notice names the airways or fixes that failed. For example, `N875(ENREP-PNK)` means no airway data holds both ENREP and PNK on N875. Add the missing fixes or airway under **Aeronautical data**, then run the analysis again. |
 | Many flights show *plan not expandable* | A fix in the middle of their routes is unknown. The dataset's plan check names the fixes. Add them under **Aeronautical data** and run the analysis again. |
 | Route classification shows no crossings | A cut line lies inside the clip radius around an aerodrome (CLU-01). Move the cut line or reduce the radius. |
 | Too many outliers | Raise CLU-05 or CLU-05b. Tactical directs move tracks a little, but they are not separate routes. |

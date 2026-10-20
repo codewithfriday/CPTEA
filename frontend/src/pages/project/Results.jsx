@@ -160,6 +160,7 @@ function Horizontal({ S }) {
     <Panel id="extension" title="Horizontal efficiency (metrics 1–6)" sub={`Against the filed route; en-route boundary ${S.main_ring} NM; distances on the ${S.earth_model} earth model`}>
       <Tabs value={tab} onChange={setTab} tabs={[{ id: "rings", label: "Boundary sensitivity" }, { id: "type", label: "By aircraft type" }, { id: "month", label: "By month" },
         { id: "time", label: "En-route time" }, { id: "lateral", label: "Lateral deviation" }, { id: "fir", label: "By FIR" }, { id: "table", label: "Table" }]} />
+      <RefRouteNotice S={S} />
       {tab === "rings" && <Chart name="extension_rings" height={90 + rings.length * 70} option={dotOpt} />}
       {tab === "type" && <Chart name="extension_by_type" option={box("dirn+type")} />}
       {tab === "month" && <Chart name="extension_by_month" option={box("dirn+month")} />}
@@ -298,5 +299,21 @@ function Flights({ runId, filters, onFlight }) {
         key: c, label: label[c] || c.replace("ext_", "Extension ").replace("time_", "En-route min ").replace(/_/g, " "), num: typeof d.rows[0]?.[c] === "number",
         render: (r) => (typeof r[c] === "boolean" ? (r[c] ? "yes" : "") : typeof r[c] === "number" ? fmt(r[c], Number.isInteger(r[c]) ? 0 : 1) : r[c] ?? "–") }))} />
     </Panel>
+  );
+}
+
+/** Explains an empty or thin horizontal-efficiency section: plans whose filed route could not be expanded. */
+function RefRouteNotice({ S }) {
+  const withPlan = S.n.with_plan || 0;
+  const withRef = S.n.with_ref || 0;
+  if (!withPlan || withRef >= 0.8 * withPlan) return null;
+  const blocking = Object.entries(S.meta?.unresolved_fixes || {}).filter(([k]) => !k.endsWith("(route end)")).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  return (
+    <div className="notice" role="status">
+      <b>Only {withRef} of {withPlan} flight plans have a usable reference route</b>, so the path extension figures {withRef ? "cover few flights" : "are empty"}.
+      {blocking.length > 0 && <> The filed routes could not be expanded at: {blocking.map(([k, n]) => `${k} (${n} plans)`).join(", ")}.</>}
+      {" "}An entry like <code>N875(ENREP-PNK)</code> means that airway in the aeronautical data does not contain both fixes. Check it under
+      Aeronautical data, add the missing fixes or airway, then run the analysis again.
+    </div>
   );
 }

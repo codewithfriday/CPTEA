@@ -72,7 +72,7 @@ export default function Ais() {
         </Panel>
         <Panel title="Airways">
           <Table maxHeight={420} rows={airways || []} columns={[{ key: "name", label: "Airway" }, { key: "source", label: "Source" },
-            { label: "Fixes", render: (a) => <span className="small">{a.fixes.join(" ")}</span> }]} />
+            { label: "Fixes", render: (a) => <span className="small">{(a.chains || [a.fixes]).map((c) => c.join(" ")).join("  |  ")}</span> }]} />
         </Panel>
       </div>
     </div>

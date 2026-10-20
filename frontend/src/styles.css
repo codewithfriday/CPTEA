@@ -165,3 +165,5 @@ pre.raw { background: var(--paper); border: 1px solid var(--line); padding: 8px;
 @media (max-width: 800px) { .login { grid-template-columns: 1fr; } .login .art { padding: 28px; } }
 .leaflet-container { font-family: var(--font); background: #dfe9ee; }
 .wplabel { background: transparent; border: none; box-shadow: none; color: var(--ink); font-size: 11px; font-weight: 600; }
+
+.notice { border: 1px solid #e8c48a; background: #fdf6ea; color: var(--ink); border-radius: var(--radius); padding: 10px 12px; margin: 10px 0; font-size: 13px; line-height: 1.5; }

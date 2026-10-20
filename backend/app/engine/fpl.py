@@ -167,10 +167,44 @@ def route_tokens(route: str) -> list:
     return out
 
 
+def airway_path(seqs, s: str, e: str):
+    """Fixes strictly between s and e along an airway. seqs is one ordered fix list or a list of them (one per
+    source or chain, best first). The first sequence holding both fixes wins; otherwise the sequences are joined
+    where they share fixes (e.g. an imported international airway plus NavEarth's Indonesian part)."""
+    if seqs and isinstance(seqs[0], str):
+        seqs = [seqs]
+    for seq in seqs:
+        if s in seq and e in seq:
+            i0, i1 = seq.index(s), seq.index(e)
+            return seq[i0 + 1:i1] if i1 > i0 else seq[i1 + 1:i0][::-1]
+    adj = {}
+    for seq in seqs:
+        for a, b in zip(seq, seq[1:]):
+            adj.setdefault(a, []).append(b)
+            adj.setdefault(b, []).append(a)
+    if s not in adj or e not in adj:
+        return None
+    prev, queue = {s: None}, [s]
+    for cur in queue:
+        if cur == e:
+            break
+        for n in adj[cur]:
+            if n not in prev:
+                prev[n] = cur
+                queue.append(n)
+    if e not in prev:
+        return None
+    path, cur = [], prev[e]
+    while cur is not None and cur != s:
+        path.append(cur)
+        cur = prev[cur]
+    return path[::-1]
+
+
 def expand_route(route: str, fixes: dict, airways: dict):
     """Expand Item 15 into an ordered list of fix names.
 
-    fixes: name -> (lat, lon); airways: name -> ordered list of fix names.
+    fixes: name -> (lat, lon); airways: name -> ordered fix list, or a list of them (see airway_path).
     Returns (names, blocking_unresolved, edge_unresolved). DCT kept as straight legs; SID/STAR
     designators dropped. Unresolved tokens before the first or after the last resolved fix (for example a
     STAR entry fix missing from the AIS data) are 'edge' warnings: the reference route then joins the last
@@ -183,11 +217,9 @@ def expand_route(route: str, fixes: dict, airways: dict):
         t = tok[i]
         if t in airways:
             if pts and i + 1 < len(tok):
-                seq = airways[t]
                 s, e = pts[-1], tok[i + 1]
-                if s in seq and e in seq:
-                    i0, i1 = seq.index(s), seq.index(e)
-                    seg = seq[i0 + 1:i1] if i1 > i0 else seq[i1 + 1:i0][::-1]
+                seg = airway_path(airways[t], s, e)
+                if seg is not None:
                     seg = [x for x in seg if x in fixes]
                     pts.extend(seg)
                     events.extend(("ok", x) for x in seg)

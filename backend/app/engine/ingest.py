@@ -327,6 +327,63 @@ def seed_navdata(db):
         import_airways_csv(db, (SEED / "airways_seed.csv").read_bytes())
 
 
+def chain_segments(segs: list) -> list[list[str]]:
+    """Join airway segments (sort, from, to) into ordered fix chains by following shared fixes.
+    The sort number only breaks ties: NavEarth leaves it empty or repeats it on some segments. A route that is
+    split (e.g. an airway that leaves and re-enters the FIR) gives several chains, longest first."""
+    adj, order = {}, {}
+    for k, (srt, a, b) in enumerate(segs):
+        if not a or not b or a == b:
+            continue
+        adj.setdefault(a, set()).add(b)
+        adj.setdefault(b, set()).add(a)
+        order.setdefault(a, (srt if srt is not None else 1e9, k))
+        order.setdefault(b, (srt if srt is not None else 1e9, k))
+    seen, chains = set(), []
+    # start from chain ends (one neighbour), lowest sort first, then from whatever is left (loops)
+    starts = sorted([n for n in adj if len(adj[n]) == 1], key=lambda n: order[n]) + sorted(adj, key=lambda n: order[n])
+    for st in starts:
+        if st in seen:
+            continue
+        chain, cur = [st], st
+        seen.add(st)
+        while True:
+            nxt = sorted((x for x in adj[cur] if x not in seen), key=lambda n: order[n])
+            if not nxt:
+                break
+            cur = nxt[0]
+            chain.append(cur)
+            seen.add(cur)
+        if len(chain) > 1:
+            chains.append(chain)
+    chains.sort(key=len, reverse=True)
+    return chains
+
+
+def flatten_chains(chains: list[list[str]]) -> list:
+    """Store several chains in one airway row, separated by None."""
+    out = []
+    for c in chains:
+        if out:
+            out.append(None)
+        out.extend(c)
+    return out
+
+
+def split_chains(fixes: list) -> list[list[str]]:
+    out, cur = [], []
+    for f in fixes or []:
+        if f is None:
+            if cur:
+                out.append(cur)
+            cur = []
+        else:
+            cur.append(f)
+    if cur:
+        out.append(cur)
+    return out
+
+
 # ------------------------------------------------------------ NavEarth WFS (FR-DATA-12)
 NAVEARTH_KEY = "navearth_wfs"
 DEFAULT_LAYERS = {
@@ -472,15 +529,7 @@ def navearth_refresh(db, settings: dict | None = None) -> dict:
                 sort = 0.0
             segs.setdefault(name, []).append((sort, a, b))
     for name, lst in segs.items():
-        lst.sort()
-        seq = []
-        for _, a, b in lst:
-            if not seq:
-                seq = [a, b]
-            elif seq[-1] == a:
-                seq.append(b)
-            elif b not in seq:
-                seq.extend([a, b])
+        seq = flatten_chains(chain_segments(lst))
         w = db.query(Airway).filter_by(name=name, source="navearth").first()
         if w:
             w.fixes = seq

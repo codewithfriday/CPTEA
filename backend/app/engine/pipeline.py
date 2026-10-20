@@ -26,12 +26,13 @@ def load_navdb(db):
         if f.name not in fixes or rank.get(f.source, 0) > rank.get(src[f.name], 0):
             fixes[f.name] = (f.lat, f.lon)
             src[f.name] = f.source
+    # Airways: every source is kept, best source first. NavEarth only covers Indonesian airspace, so its version
+    # of an international airway (e.g. N875 from AKDAT) must not hide the full one from the imported data.
+    from .ingest import split_chains
+    rows = sorted(db.query(Airway).all(), key=lambda a: -rank.get(a.source, 0))
     airways = {}
-    asrc = {}
-    for a in db.query(Airway).all():
-        if a.name not in airways or rank.get(a.source, 0) > rank.get(asrc[a.name], 0):
-            airways[a.name] = list(a.fixes)
-            asrc[a.name] = a.source
+    for a in rows:
+        airways.setdefault(a.name, []).extend(split_chains(a.fixes))
     return fixes, airways
 
 
