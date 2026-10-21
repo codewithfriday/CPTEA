@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from .. import config
 from ..db import SessionLocal, get_db
 from ..models import Report, Run, User
-from ..reports import builder
+from ..reports import builder, explained
 from ..security import audit, current_user, project_access
 
 router = APIRouter(prefix="/api", tags=["reports"])
@@ -21,6 +21,7 @@ STATUS = {}
 def rep_out(r: Report, db):
     return {"id": r.id, "run_id": r.run_id, "title": r.title, "options": r.options, "status": r.status,
             "formats": list((r.files or {}).keys()), "created_at": r.created_at,
+            "kind": (r.options or {}).get("kind") or "standard",
             "created_by": db.get(User, r.created_by).username if db.get(User, r.created_by) else "",
             "released_by": db.get(User, r.released_by).username if r.released_by and db.get(User, r.released_by) else "",
             "generation": STATUS.get(r.id, "done" if r.files else "pending")}
@@ -46,7 +47,20 @@ def create_report(rid: int, body: dict, user: User = Depends(current_user), db: 
         raise HTTPException(400, "Run not finished")
     project_access(db, user, r.project_id, "analyst")
     opts = {k: body.get(k) for k in ("title", "authors", "sections", "formats", "filters", "include_drafts", "logo_path")}
-    rep = Report(run_id=rid, title=body.get("title") or "", options=opts, created_by=user.id, status="draft")
+    kind = body.get("kind") or "standard"
+    if kind not in ("standard", "explained"):
+        raise HTTPException(400, "kind must be standard or explained")
+    opts["kind"] = kind
+    title = body.get("title") or ""
+    if kind == "explained":
+        # one PDF that explains every table and chart in plain language
+        opts["formats"] = ["pdf"]
+        if not title:
+            from ..models import Project
+            p = db.get(Project, r.project_id)
+            title = f"Understanding the {p.adep}–{p.ades} results"
+        opts["title"] = title
+    rep = Report(run_id=rid, title=title, options=opts, created_by=user.id, status="draft")
     db.add(rep)
     db.commit()
     STATUS[rep.id] = "generating"
@@ -55,7 +69,8 @@ def create_report(rid: int, body: dict, user: User = Depends(current_user), db: 
         s = SessionLocal()
         try:
             rp = s.get(Report, rep_id)
-            rp.files = builder.generate(s, rp, s.get(Run, rp.run_id))
+            gen = explained.generate if (rp.options or {}).get("kind") == "explained" else builder.generate
+            rp.files = gen(s, rp, s.get(Run, rp.run_id))
             s.commit()
             STATUS[rep_id] = "done"
         except Exception as e:  # noqa: BLE001

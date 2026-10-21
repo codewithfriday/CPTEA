@@ -291,11 +291,16 @@ def render_pdf(c: dict, path: Path, logo: Path | None = None):
         story.append(Paragraph(esc(c["authors"]), st["sub"]))
     story.append(Paragraph(esc(c["stamp"]), st["cap"]))
     story.append(Spacer(1, 6))
+    from reportlab.platypus import CondPageBreak
+    pending, need = [], 0  # headings waiting to be bound to the first flowable after them (no heading ends a page)
     for b in c["blocks"]:
         t = b["t"]
+        k = len(story)
         if t == "h":
-            story.append(Paragraph(esc(b["text"]), st["h1" if b["level"] == 1 else "h2"]))
-        elif t == "p":
+            pending.append(Paragraph(esc(b["text"]), st["h1" if b["level"] == 1 else "h2"]))
+            need = max(need, 60 if b["level"] == 1 else 42)
+            continue
+        if t == "p":
             story.append(Paragraph(esc(b["text"]), st["p"]))
         elif t == "ul":
             for it in b["items"]:
@@ -331,6 +336,10 @@ def render_pdf(c: dict, path: Path, logo: Path | None = None):
             story.append(KeepTogether([Image(b["path"], width=w, height=h), Paragraph(esc(b["caption"]), st["cap"])]))
         elif t == "pb":
             story.append(PageBreak())
+        if pending and len(story) > k:
+            story[k:k + 1] = [CondPageBreak(need * mm), KeepTogether(pending + [story[k]])]
+            pending, need = [], 0
+    story += pending
 
     def foot(cv, doc):
         cv.saveState()

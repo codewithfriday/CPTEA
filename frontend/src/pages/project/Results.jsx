@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { api, fmt, pct, qs } from "../../api";
+import { api, download, fmt, pct, qs } from "../../api";
 import Chart, { axis, base, COLORS } from "../../components/Chart";
 import FilterBar from "../../components/FilterBar";
 import MapView, { ringLatLngs } from "../../components/MapView";
-import { Empty, Panel, Table, Tabs, useToast } from "../../components/ui";
+import { can, Empty, Panel, Table, Tabs, useAuth, useToast } from "../../components/ui";
 import { RunPicker, useProject } from "../ProjectShell";
 
 const FKEY = (pid) => `cptea_filters_${pid}`;
@@ -27,7 +27,10 @@ export default function Results() {
   if (!runs.some((r) => r.status === "done")) return <div className="panel"><Empty title="No results yet">Start a run on the Runs page; results appear here when it finishes.</Empty></div>;
   return (
     <div>
-      <div className="row" style={{ marginBottom: 10 }}><RunPicker />{loading && <span className="muted small">Updating…</span>}</div>
+      <div className="row" style={{ marginBottom: 10, alignItems: "flex-end" }}>
+        <RunPicker />{loading && <span className="muted small">Updating…</span>}
+        <div style={{ marginLeft: "auto" }}><ExplainButton runId={runId} filters={filters} /></div>
+      </div>
       {S && <FilterBar options={S.options} value={filters} onChange={setFilters} />}
       {S && (
         <>
@@ -315,5 +318,37 @@ function RefRouteNotice({ S }) {
       {" "}An entry like <code>N875(ENREP-PNK)</code> means that airway in the aeronautical data does not contain both fixes. Check it under
       Aeronautical data, add the missing fixes or airway, then run the analysis again.
     </div>
+  );
+}
+
+/** One click: a PDF that explains every table and chart of this run in plain language (uses the current filters). */
+function ExplainButton({ runId, filters }) {
+  const { user } = useAuth();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  if (!can(user, "analyst") || !runId) return null;
+  const go = async () => {
+    setBusy(true);
+    try {
+      const rep = await api.post(`/runs/${runId}/reports`, { kind: "explained", filters });
+      toast("Writing the explained report. It downloads when ready (usually under a minute).");
+      for (let i = 0; i < 150; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const r = (await api.get(`/runs/${runId}/reports`)).find((x) => x.id === rep.id);
+        if (r && r.generation === "done") {
+          await download(`/reports/${r.id}/download/pdf`);
+          toast("Explained report downloaded. It is also listed on the Reports page.");
+          break;
+        }
+        if (r && r.generation.startsWith("error")) { toast("The explained report could not be generated. See the Reports page for details.", "error"); break; }
+      }
+    } catch (e) { toast(e.message, "error"); }
+    setBusy(false);
+  };
+  return (
+    <button className="btn" disabled={busy} onClick={go}
+      title="A PDF that explains every table and chart of this run in plain language, for the flights in the current filters">
+      {busy ? "Writing the explained report…" : "Explained report (PDF)"}
+    </button>
   );
 }

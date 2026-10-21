@@ -207,3 +207,70 @@ def cluster_monthly(S, path):
         ax.legend(fontsize=7)
         ax.grid(axis="x", visible=False)
     return _save(fig, path)
+
+
+def extension_by_type(S, path):
+    """Box plot of path extension by direction and aircraft type (the Results 'By aircraft type' tab)."""
+    rows = [b for b in S["extension_box"] if b["by"] == "dirn+type" and b["n"] >= 3]
+    if not rows:
+        return None
+    rows.sort(key=lambda b: b["key"])
+    dirs = sorted({b["key"].split(" · ")[0] for b in rows})
+    fig, ax = plt.subplots(figsize=(7.6, 0.6 + 0.32 * len(rows)))
+    for i, b in enumerate(rows):
+        d = next((k for k, x in enumerate(dirs) if b["key"].startswith(x)), 0)
+        c = SERIES[d % len(SERIES)]
+        ax.plot([b["min"], b["max"]], [i, i], color=c, lw=.8, alpha=.6)
+        ax.add_patch(plt.Rectangle((b["p25"], i - .3), b["p75"] - b["p25"], .6, color=c, alpha=.35, lw=0))
+        ax.plot([b["median"], b["median"]], [i - .3, i + .3], color=c, lw=2)
+    ax.axvline(0, color=INK, lw=.8)
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([f"{b['key']} ({b['n']})" for b in rows], fontsize=7.5)
+    ax.set_xlabel(f"Flown minus filed-route distance between the {S['main_ring']} NM rings (NM)")
+    ax.set_title("Path extension by aircraft type · box = middle half of flights, line = median")
+    ax.grid(axis="y", visible=False)
+    return _save(fig, path)
+
+
+def terminal_scatter(S, path):
+    """En-route time against time in the last arrival ring, one dot per flight."""
+    pts = S["terminal"]["scatter"]
+    if not pts:
+        return None
+    aps = sorted({p["ades"] for p in pts})
+    fig, ax = plt.subplots(figsize=(7, 3.6))
+    for j, ap in enumerate(aps):
+        xs = [p["enroute"] for p in pts if p["ades"] == ap and p["enroute"] is not None and p["arrival"] is not None]
+        ys = [p["arrival"] for p in pts if p["ades"] == ap and p["enroute"] is not None and p["arrival"] is not None]
+        r = S["terminal"]["corr"].get(ap)
+        ax.scatter(xs, ys, s=6, alpha=.55, color=SERIES[j % 8], lw=0,
+                   label=f"into {ap}" + (f" (r = {r:.2f})" if r is not None else ""))
+    ax.set_xlabel(f"En-route time between the {S['main_ring']} NM rings (min)")
+    ax.set_ylabel(f"Time in last {S['terminal']['big_ring']} NM (min)")
+    ax.set_title("Does a slow arrival follow a slow en-route phase?")
+    ax.legend(fontsize=7.5, markerscale=2)
+    return _save(fig, path)
+
+
+def cruise_changes_map(S, tracks, path):
+    """Where flown cruise level changes happen, against the plan."""
+    pts = (S["cruise"].get("changes") or {}).get("points") or []
+    if not pts:
+        return None
+    fig, ax = plt.subplots(figsize=(5.2, 5.6))
+    for t in tracks[:400]:
+        c = np.array(t["coords"])
+        ax.plot(c[:, 1], c[:, 0], lw=.25, alpha=.15, color=MUTED)
+    groups = [("at the filed waypoint", lambda p: p.get("matched"), "#1D7A46"),
+              ("filed level, reached elsewhere", lambda p: p.get("reaches_planned") and not p.get("matched"), C2),
+              ("not in the flight plan", lambda p: not p.get("reaches_planned"), INK)]
+    for label, fn, col in groups:
+        g = [p for p in pts if fn(p)]
+        if g:
+            ax.scatter([p["lon"] for p in g], [p["lat"] for p in g], s=9, color=col, alpha=.75, lw=0, label=f"{label} ({len(g)})")
+    ax.set_aspect("equal", adjustable="datalim")
+    ax.set_xlabel("Longitude (°)")
+    ax.set_ylabel("Latitude (°)")
+    ax.set_title("Flown cruise level changes")
+    ax.legend(fontsize=7, loc="lower left")
+    return _save(fig, path)

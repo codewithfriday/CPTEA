@@ -25,6 +25,7 @@ It covers:
 - **Insights and reports.**
   - Rule-based insights that analysts accept, edit or reject.
   - PDF, Word and PowerPoint reports with a draft → in review → released workflow.
+  - A one-click plain-language "explained report" (PDF) that walks through every table and chart of a run for non-specialist readers.
 
 The user manual is in [`docs/CPTEA_User_Manual.pdf`](docs/CPTEA_User_Manual.pdf), with the source in [`docs/USER_MANUAL.md`](docs/USER_MANUAL.md).
 

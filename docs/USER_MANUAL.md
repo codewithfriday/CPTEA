@@ -498,6 +498,34 @@ The annex lists:
 
 ![Report released by the reviewer](img/26_released.png)
 
+## 10.1 Explained report (plain language)
+
+For readers who are not trajectory analysts, choose **Explained report (PDF)** at the top of the **Results** page. CPTEA writes one PDF covering the flights in the current filters, and it downloads when ready (usually in under a minute). It goes through every table and chart of the run in the same order as the Results page:
+
+1. data and coverage;
+2. route groups;
+3. flown against filed distance;
+4. the arrival phase;
+5. cruise levels;
+6. climb and descent level-offs.
+
+Each table and chart is followed by three short parts:
+
+- **What this shows:** what was measured, in everyday words.
+- **How to read it:** how to look at the table or chart.
+- **What it tells us:** this run's own numbers, written out as sentences, for example "flights typically flew 10.6 NM (about 20 km) less than filed".
+
+The report opens with the main findings and ends with all insights and a list of words used.
+
+**Insights in the report:**
+- Reviewed (accepted or edited) insights are placed next to the chart they describe.
+- Where a section has no reviewed insight, CPTEA's proposed insights are used instead, labelled *Proposed insight (not yet reviewed)*.
+- Each kind of insight comes with a one-line explanation *in plain words*.
+
+**Layout:** headings are always kept with the content that follows them, and short tables and explanation boxes are never split across pages.
+
+The explained report is also listed on the **Reports** page, marked *plain language*, and goes through the same review and release steps. You can create it there too: choose **Plain-language explained report** under **Report type**, which lets you set the title, authors and logo.
+
 # 11. Comparing runs
 
 **Compare runs** puts two finished runs side by side. For example, it can compare the default parameters with a sensitivity case such as a 60 s level-off threshold and a 200 NM en-route boundary. It lists:

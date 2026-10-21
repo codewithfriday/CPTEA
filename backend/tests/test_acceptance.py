@@ -95,6 +95,56 @@ def test_vtbs_wadd(client):
     assert r["generation"] == "done", r["generation"]
     for fmt in ("pdf", "docx", "pptx"):
         assert c.get(f"/api/reports/{rep['id']}/download/{fmt}", headers=h).status_code == 200
+    # plain-language explained report: one PDF, every section present, no heading left at the bottom of a page
+    ex = c.post(f"/api/runs/{run['id']}/reports", headers=h, json={"kind": "explained"}).json()
+    assert ex["kind"] == "explained" and ex["title"].startswith("Understanding the VTBS")
+    t0 = time.time()
+    while time.time() - t0 < 300:
+        x = [y for y in c.get(f"/api/runs/{run['id']}/reports", headers=h).json() if y["id"] == ex["id"]][0]
+        if x["generation"] != "generating":
+            break
+        time.sleep(2)
+    assert x["generation"] == "done", x["generation"] and x["formats"] == ["pdf"]
+    pdf_ex = c.get(f"/api/reports/{ex['id']}/download/pdf", headers=h)
+    assert pdf_ex.status_code == 200
+    pypdf = pytest.importorskip("pypdf")
+    import io
+    import re
+
+    def pages_text(content):
+        return [(pg.extract_text() or "") for pg in pypdf.PdfReader(io.BytesIO(content)).pages]
+
+    ex_pages = pages_text(pdf_ex.content)
+    full = "\n".join(ex_pages)
+    for sec in ("1. About this report", "2. The main findings", "5. Flying further or shorter than planned", "6. The arrival phase",
+                "7. Cruising at the right level", "8. Stopping on the way up and down", "What this shows", "What it tells us"):
+        assert sec in full, sec
+    assert "10.6 NM" in full  # the run's own numbers are explained
+
+    def last_lines(pages):
+        out = []
+        for t in pages[:-1]:
+            ls = [re.sub(r"\s+", " ", l).strip() for l in t.splitlines()]
+            ls = [l for l in ls if l and not re.fullmatch(r"\d+", l) and "· run #" not in l and not l.startswith("CPTEA ·")]
+            out.append(ls[-1] if ls else "")
+        return out
+
+    from app.reports.explained import GROUP_TITLES
+    heads = {"1. About this report", "2. The main findings", "3. The data behind the results", "4. Which routes were used",
+             "5. Flying further or shorter than planned", "6. The arrival phase", "7. Cruising at the right level",
+             "8. Stopping on the way up and down", "9. All insights and recommendations", "10. Words used in this report",
+             "Flights per month", "Where the flights flew", "Route groups", "Filed route against flown distance",
+             "Efficiency by airspace (FIR)", "Time in the last part of the flight", "Cruise level score",
+             "Climbs stopped below the filed level", "How often flights level off", "Level time by height band",
+             "Recommendations"} | {"Executive summary", "Data and coverage", "Method and parameters", "Route classification",
+                                   "Horizontal efficiency", "Terminal arrival", "Cruise vertical efficiency",
+                                   "Climb and descent level-offs", "Insights and recommendations", "Annex", "Parameter set",
+                                   "Excluded flights", "Unresolved flight plan fixes", "Glossary"} | \
+        set(GROUP_TITLES.values())
+    std_pages = pages_text(c.get(f"/api/reports/{rep['id']}/download/pdf", headers=h).content)
+    for name, pages in (("explained", ex_pages), ("standard", std_pages)):
+        orphans = [(i + 1, l) for i, l in enumerate(last_lines(pages)) if l in heads]
+        assert not orphans, (name, orphans)
     out = Path(os.environ.get("CPTEA_TEST_OUT", tempfile.gettempdir()))
     (out / "acceptance_summary.json").write_text(json.dumps({"extension": S["extension"], "terminal": S["terminal"]["by_ades"],
                                                              "leveloffs": S["leveloffs"]["primary"]}, indent=1))
