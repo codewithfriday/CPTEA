@@ -1,5 +1,6 @@
 """Data loading services: tracks, flight plans (file and API), AIS and airspace (SRS section 4)."""
 import csv
+from collections import defaultdict
 import io
 import re
 import json
@@ -9,6 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
+import numpy as np
 import pandas as pd
 
 from .. import config
@@ -40,64 +42,190 @@ def collect_csv(sources: list[Path]) -> list[tuple[str, bytes]]:
     return out
 
 
+def _store_tracks(db, ds, project, params, items, total: int, hash_parts: list, source_label: str):
+    """Clean, identify and store tracks. items yields (name, track DataFrame) or (name, Exception)."""
+    log, frames, flights = [], [], {}
+    for k, (name, tr) in enumerate(items):
+        try:
+            if isinstance(tr, Exception):
+                raise tr
+            if len(tr) < 10:
+                log.append({"file": name, "result": "skipped", "detail": f"only {len(tr)} points"})
+                continue
+            tr, removed = clean(tr)
+            fid, cs, dof = flight_id(name, tr)
+            if fid in flights:
+                # same callsign twice on one date: a second flight if the times do not overlap, else a duplicate
+                t0, t1 = int(tr.t.iloc[0]), int(tr.t.iloc[-1])
+                same = [f for f in flights.values() if f["callsign"] == cs and f["dof"] == dof]
+                if any(t0 <= f["t_last"] and f["t_first"] <= t1 for f in same):
+                    log.append({"file": name, "result": "skipped", "detail": f"duplicate flight {fid}"})
+                    continue
+                fid = f"{fid}-{len(same) + 1}"
+            summ = summarise_flight(tr, project, params)
+            flights[fid] = dict(fid=fid, callsign=cs, dof=dof, **summ)
+            if removed:
+                flights[fid]["flags"] = flights[fid]["flags"] + [f"cleaned_{removed}_points"]
+            tr = tr.assign(fid=fid)
+            frames.append(tr[["fid", "t", "lat", "lon", "alt", "gs", "trk"]])
+            log.append({"file": name, "result": "loaded", "detail": f"{fid}, {len(tr)} points"})
+        except Exception as e:  # noqa: BLE001
+            log.append({"file": name, "result": "error", "detail": str(e)[:200]})
+        if k % 50 == 0:
+            ds.message = f"Processed {k + 1} of {total} {source_label}"
+            db.commit()
+    if not frames:
+        raise ValueError(f"No valid tracks found in {total} {source_label}")
+    pts = pd.concat(frames, ignore_index=True)
+    pts.to_parquet(config.dataset_dir(ds.id) / "points.parquet", index=False)
+    for f in flights.values():
+        inc = f["gate_to_gate"] and f["duration_min"] >= float(params["GEN-03"])
+        db.add(Flight(dataset_id=ds.id, included=inc,
+                      exclude_reason="" if inc else ", ".join(x for x in f["flags"] if not x.startswith("cleaned")), **f))
+    db.commit()
+    fl = pd.DataFrame(flights.values())
+    ds.quality = quality_summary(pts, fl, params)
+    ds.content_hash = content_hash(hash_parts)
+    ds.n_flights = len(flights)
+    ds.load_log = log
+    ds.status, ds.message = "ready", f"{len(flights)} flights loaded from {total} {source_label}"
+    db.commit()
+
+
 def load_tracks(dataset_id: int, sources: list, params: dict, column_map: dict | None = None):
     """Background job: parse, clean and store all tracks of a dataset (FR-DATA-01..06, 13, 14)."""
     db = SessionLocal()
     ds = db.get(Dataset, dataset_id)
     project = db.get(Project, ds.project_id)
-    log = []
     try:
         files = collect_csv(sources)
         ds.n_files = len(files)
         ds.message = f"Parsing {len(files)} files"
         db.commit()
-        frames, flights = [], {}
-        for k, (name, data) in enumerate(files):
-            try:
-                tr = read_track(data, name)
-                if column_map:
-                    pass
-                if len(tr) < 10:
-                    log.append({"file": name, "result": "skipped", "detail": f"only {len(tr)} points"})
-                    continue
-                tr, removed = clean(tr)
-                fid, cs, dof = flight_id(name, tr)
-                if fid in flights:
-                    log.append({"file": name, "result": "skipped", "detail": f"duplicate flight {fid}"})
-                    continue
-                summ = summarise_flight(tr, project, params)
-                flights[fid] = dict(fid=fid, callsign=cs, dof=dof, **summ)
-                if removed:
-                    flights[fid]["flags"] = flights[fid]["flags"] + [f"cleaned_{removed}_points"]
-                tr = tr.assign(fid=fid)
-                frames.append(tr[["fid", "t", "lat", "lon", "alt", "gs", "trk"]])
-                log.append({"file": name, "result": "loaded", "detail": f"{fid}, {len(tr)} points"})
-            except Exception as e:  # noqa: BLE001
-                log.append({"file": name, "result": "error", "detail": str(e)[:200]})
-            if k % 50 == 0:
-                ds.message = f"Parsed {k + 1} of {len(files)} files"
-                db.commit()
-        if not frames:
-            raise ValueError("No valid track files found")
-        pts = pd.concat(frames, ignore_index=True)
-        pts.to_parquet(config.dataset_dir(ds.id) / "points.parquet", index=False)
-        for f in flights.values():
-            inc = f["gate_to_gate"] and f["duration_min"] >= float(params["GEN-03"])
-            db.add(Flight(dataset_id=ds.id, included=inc,
-                          exclude_reason="" if inc else ", ".join(x for x in f["flags"] if not x.startswith("cleaned")),
-                          **f))
-        db.commit()
-        fl = pd.DataFrame(flights.values())
-        ds.quality = quality_summary(pts, fl, params)
-        ds.content_hash = content_hash([d for _, d in files])
-        ds.n_flights = len(flights)
-        ds.load_log = log
-        ds.status, ds.message = "ready", f"{len(flights)} flights loaded from {len(files)} files"
-        db.commit()
+
+        def items():
+            for name, data in files:
+                try:
+                    yield name, read_track(data, name)
+                except Exception as e:  # noqa: BLE001
+                    yield name, e
+
+        _store_tracks(db, ds, project, params, items(), len(files), [d for _, d in files], "files")
     except Exception as e:  # noqa: BLE001
         db.rollback()
         ds = db.get(Dataset, dataset_id)
-        ds.status, ds.message, ds.load_log = "error", str(e), log
+        ds.status, ds.message = "error", str(e)
+        db.commit()
+    finally:
+        db.close()
+
+
+# ------------------------------------------------------------------ tracks: NavTrace database (MobilityDB)
+NAVTRACE_FLIGHTS_SQL = """
+SELECT gufi, callsign, dof::text AS dof, adep, ades, coalesce(pushed_at::text, '') AS pushed_at
+FROM {table}
+WHERE ((adep = %(a)s AND ades = %(b)s) OR (adep = %(b)s AND ades = %(a)s))
+  AND callsign IS NOT NULL AND callsign <> ''
+  AND (%(d0)s::date IS NULL OR dof >= %(d0)s::date)
+  AND (%(d1)s::date IS NULL OR dof <= %(d1)s::date)
+ORDER BY dof, callsign, gufi
+"""
+# One row per position. Barometric altitude is not reported on the ground: positions slower than 50 kt without an
+# altitude are taken as on the ground (0 ft), as in Flightradar24 data.
+NAVTRACE_POINTS_SQL = """
+SELECT f.gufi,
+       extract(epoch FROM getTimestamp(i))::bigint AS t,
+       ST_Y(getValue(i)) AS lat,
+       ST_X(getValue(i)) AS lon,
+       valueAtTimestamp(f.alt_baro, getTimestamp(i)) AS alt,
+       valueAtTimestamp(f.gs, getTimestamp(i)) AS gs
+FROM {table} f
+CROSS JOIN LATERAL unnest(instants(f.track)) AS i
+WHERE f.gufi = ANY(%(gufis)s)
+ORDER BY f.gufi, t
+"""
+
+
+def navtrace_connect():
+    if not config.NAVTRACE_DSN:
+        raise ValueError("The NavTrace database is not configured (set CPTEA_NAVTRACE_DSN on the CPTEA server)")
+    try:
+        import psycopg
+    except ImportError as e:
+        raise ValueError("The PostgreSQL driver is missing on the CPTEA server: pip install \"psycopg[binary]\"") from e
+    return psycopg.connect(config.NAVTRACE_DSN, connect_timeout=10)
+
+
+def navtrace_flights(con, adep: str, ades: str, d0=None, d1=None) -> list[dict]:
+    with con.cursor() as cur:
+        cur.execute(NAVTRACE_FLIGHTS_SQL.format(table=config.NAVTRACE_TABLE), {"a": adep, "b": ades, "d0": d0, "d1": d1})
+        cols = [c.name for c in cur.description]
+        return [dict(zip(cols, r)) for r in cur.fetchall()]
+
+
+def navtrace_status(adep: str | None = None, ades: str | None = None, d0=None, d1=None) -> dict:
+    """Is the database reachable, and how many flights does it hold for this pair?"""
+    if not config.NAVTRACE_DSN:
+        return {"configured": False, "ok": False, "message": "Not configured on the CPTEA server (CPTEA_NAVTRACE_DSN)"}
+    try:
+        with navtrace_connect() as con:
+            out = {"configured": True, "ok": True, "message": "connected", "table": config.NAVTRACE_TABLE}
+            if adep and ades:
+                fl = navtrace_flights(con, adep, ades, d0, d1)
+                by = defaultdict(int)
+                for f in fl:
+                    by[f"{f['adep']}-{f['ades']}"] += 1
+                out.update(flights=len(fl), by_direction=dict(by), first=fl[0]["dof"] if fl else None,
+                           last=fl[-1]["dof"] if fl else None)
+            return out
+    except Exception as e:  # noqa: BLE001
+        return {"configured": True, "ok": False, "message": f"{e.__class__.__name__}: {str(e)[:300]}"}
+
+
+def navtrace_tracks(con, rows: list[dict], batch: int = 100):
+    """Yield (name, track) per NavTrace flight, in the shape read_track gives for a CSV file."""
+    by_gufi = {r["gufi"]: r for r in rows}
+    gufis = list(by_gufi)
+    for k in range(0, len(gufis), batch):
+        part = gufis[k:k + batch]
+        with con.cursor() as cur:
+            cur.execute(NAVTRACE_POINTS_SQL.format(table=config.NAVTRACE_TABLE), {"gufis": part})
+            df = pd.DataFrame(cur.fetchall(), columns=["gufi", "t", "lat", "lon", "alt", "gs"])
+        for g in part:
+            r = by_gufi[g]
+            name = f"{r['callsign'].strip().upper()}-{r['dof']}"
+            tr = df[df.gufi == g].drop(columns="gufi")
+            if tr.empty:
+                yield name, ValueError(f"no positions for {g}")
+                continue
+            tr = tr.astype({"t": "int64", "lat": float, "lon": float, "alt": float, "gs": float})
+            ground = tr.alt.isna() & (tr.gs.fillna(0) < 50)
+            tr.loc[ground, "alt"] = 0.0
+            tr = tr.dropna(subset=["t", "lat", "lon", "alt"]).sort_values("t").drop_duplicates("t")
+            tr["trk"] = np.nan
+            tr["callsign"] = r["callsign"].strip().upper()
+            yield name, tr.reset_index(drop=True)
+
+
+def load_tracks_navtrace(dataset_id: int, params: dict, d0=None, d1=None):
+    """Background job: load a city pair's tracks from the NavTrace database into a new dataset version."""
+    db = SessionLocal()
+    ds = db.get(Dataset, dataset_id)
+    project = db.get(Project, ds.project_id)
+    try:
+        with navtrace_connect() as con:
+            rows = navtrace_flights(con, project.adep, project.ades, d0, d1)
+            if not rows:
+                raise ValueError(f"No {project.adep}–{project.ades} flights in the NavTrace database for this period")
+            ds.n_files = len(rows)
+            ds.message = f"Reading {len(rows)} flights from NavTrace"
+            db.commit()
+            hash_parts = [f"{r['gufi']}|{r['pushed_at']}".encode() for r in rows]
+            _store_tracks(db, ds, project, params, navtrace_tracks(con, rows), len(rows), hash_parts, "NavTrace flights")
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        ds = db.get(Dataset, dataset_id)
+        ds.status, ds.message = "error", str(e)[:500]
         db.commit()
     finally:
         db.close()
@@ -391,8 +519,13 @@ DEFAULT_LAYERS = {
     "navaids": "enroute_chart:nav_aid_enr",
     "routes": "enroute_chart:ats_route_international, enroute_chart:ats_route_rnp_upper",
     "tma": "enroute_chart:tma_polygon",
+    "aerodromes": "enroute_chart:arp_vol_ii, enroute_chart:arp_vol_iii, enroute_chart:arp_vol_iv",
+    "fir": "enroute_chart:fir_polygon",
 }
-LAYER_LABELS = {"points": "Reporting points", "navaids": "En-route navaids", "routes": "ATS routes", "tma": "TMA polygons"}
+LAYER_LABELS = {"points": "Reporting points", "navaids": "En-route navaids", "routes": "ATS routes", "tma": "TMA polygons",
+                "aerodromes": "Aerodrome reference points (AIP Vol II–IV)", "fir": "FIR boundaries"}
+# NavEarth names its FIRs in words; CPTEA reports FIRs by ICAO location indicator
+FIR_CODES = {"FIR JAKARTA": "WIIF", "FIR UJUNG PANDANG": "WAAF", "FIR MAKASSAR": "WAAF"}
 
 
 def navearth_defaults() -> dict:
@@ -492,7 +625,7 @@ def navearth_refresh(db, settings: dict | None = None) -> dict:
     st = settings or navearth_settings(db)
     url = check_wfs_url(st["url"])
     L = st["layers"]
-    out = {"fixes": 0, "navaids": 0, "airways": 0, "tma": 0, "duplicates": 0, "errors": []}
+    out = {"fixes": 0, "navaids": 0, "airways": 0, "tma": 0, "aerodromes": 0, "firs": 0, "duplicates": 0, "errors": []}
     db.info.pop("fix_cache", None)
 
     def each(key):
@@ -536,6 +669,24 @@ def navearth_refresh(db, settings: dict | None = None) -> dict:
         else:
             db.add(Airway(name=name, fixes=seq, source="navearth"))
         out["airways"] += 1
+    for f in each("aerodromes"):
+        pr, g = f.get("properties") or {}, f.get("geometry") or {}
+        code = _prop(pr, "designator", "icao", "ident").upper()
+        if len(code) == 4 and g.get("type") == "Point" and g.get("coordinates"):
+            upsert_fix(db, code, g["coordinates"][1], g["coordinates"][0], "navearth", "aerodrome", _prop(pr, "source_aip"))
+            out["aerodromes"] += 1
+    firs = [f for f in each("fir") if (f.get("geometry") or {}).get("type") in ("Polygon", "MultiPolygon")]
+    if firs:
+        # replace NavEarth's FIR set as a whole; FIRs imported from files are kept
+        db.query(Airspace).filter_by(source="navearth", kind="fir").delete()
+        for f in firs:
+            pr = f.get("properties") or {}
+            name = _prop(pr, "layer", "name", "designator", default="FIR")
+            code = FIR_CODES.get(name.upper()) or _prop(pr, "designator", "icao", default=name)[:16]
+            info = {k: _prop(pr, k) for k in ("class", "upper", "lower", "unt_srvc", "source_aip") if _prop(pr, k)}
+            db.add(Airspace(code=code.upper()[:16], name=name[:128], ansp=_prop(pr, "unt_srvc", "ansp")[:64] or "AirNav Indonesia",
+                            kind="fir", source="navearth", props=info, geometry=f["geometry"]))
+            out["firs"] += 1
     tma = [f for f in each("tma") if (f.get("geometry") or {}).get("type") in ("Polygon", "MultiPolygon")]
     if tma or not layer_names(L.get("tma", "")):
         # replace the NavEarth TMA set as a whole: sectors often share a name, so there is no stable key to update

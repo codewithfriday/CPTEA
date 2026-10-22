@@ -6,9 +6,9 @@ It covers:
 
 - **Login and roles.** Four roles: Administrator, Analyst, Reviewer and Viewer. Sessions time out after 30 minutes idle, accounts lock after repeated failed sign-ins, and every action is written to an audit log.
 - **Data loading.**
-  - ADS-B tracks: FR24 CSV files, a ZIP, a folder or a server path.
+  - ADS-B tracks: FR24 CSV files, a ZIP, a folder or a server path, or the NavTrace ADS-B database (PostgreSQL + MobilityDB).
   - Flight plans: AirNav FPL archive files (JSON or Parquet), or the AirNav flight data API, which needs the VPN.
-  - Aeronautical data: NavEarth WFS refresh (points, navaids, ATS routes, TMA polygons, with an address administrators can edit), fixes and airways from CSV, FIR boundaries from GeoJSON.
+  - Aeronautical data: NavEarth WFS refresh (points, navaids, ATS routes, aerodrome reference points, FIR boundaries, TMA polygons, with an address administrators can edit), fixes and airways from CSV, FIR boundaries from GeoJSON.
 - **All metrics of the method.**
   - Path extension against the filed route at several en-route boundaries.
   - En-route time and its variance, lateral deviation, and efficiency by FIR.
@@ -88,7 +88,13 @@ All settings are environment variables; see [`.env.example`](.env.example). The 
 | `CPTEA_ADMIN_USERNAME` / `CPTEA_ADMIN_PASSWORD` | `admin` / `ChangeMe!2026` | First administrator, created on first start only |
 | `CPTEA_FLIGHT_API_URL` / `CPTEA_FLIGHT_API_TOKEN` | `http://172.20.17.117:3000` / empty | AirNav flight data API (VPN only) |
 | `CPTEA_NAVEARTH_WFS` | NavEarth `enroute_chart` WFS (TMA polygon GetFeature link) | Default NavEarth address. Administrators can change it, and the layer names, on the Aeronautical data page. A saved value overrides this variable. |
+| `CPTEA_NAVTRACE_DSN` | empty | NavTrace ADS-B database connection (libpq form, read-only user), e.g. `host=172.20.25.30 dbname=navtrace_flight user=cptea_ro password=…`. Enables **NavTrace database** as a track source. |
+| `CPTEA_NAVTRACE_TABLE` | `navtrace.flight_trajectory` | Table with one row per flight: `gufi`, `callsign`, `dof`, `adep`, `ades`, `track` (tgeompoint), `alt_baro` (ft) and `gs` (kt) |
 | `CPTEA_TILE_URL` | OpenStreetMap | Map tiles. Leave it empty on air-gapped servers: maps then use the built-in coastline. |
+
+## Adding city pairs from NavTrace
+
+`python -m app.tools.add_city_pairs --fpl-dir <folder> --run` (from `backend/`, with the server's environment) creates the projects for the candidate city pairs, adapts the parameters to each pair, loads the tracks from NavTrace, imports the flight plans fetched with `fetch_city_pair_fpls.py` and runs the analysis. See section 4.4 of the manual.
 
 ## Tests
 
@@ -97,6 +103,7 @@ cd backend
 pip install -r requirements.txt
 python -m pytest -q tests                                        # unit tests
 CPTEA_TEST_DATA=/path/to/vtbs_wadd python -m pytest -q tests     # plus end-to-end acceptance
+CPTEA_TEST_NAVTRACE_DSN="host=… dbname=navtrace_flight user=…" python -m pytest -q tests/test_navtrace.py   # NavTrace loader
 ```
 
 The acceptance test loads the VTBS–WADD data: `Flights/` holds the FR24 CSV tree and `FPL/` holds `FPL_VTBS_WADD.json` and `fplaug25.parquet.gzip`. It runs the full analysis with the default parameters and checks the reference results:

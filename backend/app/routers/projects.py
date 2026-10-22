@@ -1,3 +1,4 @@
+import re
 import json
 import shutil
 import threading
@@ -158,6 +159,14 @@ def project_params(db, pid):
     return ps.values if ps else dict(DEFAULT_VALUES)
 
 
+@router.get("/projects/{pid}/navtrace")
+def navtrace_preview(pid: int, date_from: str = "", date_to: str = "", user: User = Depends(current_user),
+                     db: Session = Depends(get_db)):
+    """How many flights of this city pair the NavTrace database holds (and whether it is reachable)."""
+    p = project_access(db, user, pid, "viewer")
+    return ingest.navtrace_status(p.adep, p.ades, date_from or None, date_to or None)
+
+
 @router.get("/projects/{pid}/datasets")
 def list_datasets(pid: int, user: User = Depends(current_user), db: Session = Depends(get_db)):
     project_access(db, user, pid, "viewer")
@@ -165,11 +174,30 @@ def list_datasets(pid: int, user: User = Depends(current_user), db: Session = De
 
 
 @router.post("/projects/{pid}/datasets")
-async def create_dataset(pid: int, name: str = Form(""), server_path: str = Form(""),
+async def create_dataset(pid: int, name: str = Form(""), server_path: str = Form(""), source: str = Form("files"),
+                         date_from: str = Form(""), date_to: str = Form(""),
                          files: list[UploadFile] = File(default=[]), user: User = Depends(current_user),
                          db: Session = Depends(get_db)):
-    """FR-DATA-01: files, a ZIP, or a folder path on the server."""
+    """FR-DATA-01: files, a ZIP, a folder path on the server, or the NavTrace database."""
     project_access(db, user, pid, "analyst")
+    if source == "navtrace":
+        for d in (date_from, date_to):
+            if d and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", d):
+                raise HTTPException(400, "Dates must be YYYY-MM-DD")
+        if not config.NAVTRACE_DSN:
+            raise HTTPException(400, "The NavTrace database is not configured on the CPTEA server (CPTEA_NAVTRACE_DSN)")
+        ver = (db.query(func.max(Dataset.version)).filter_by(project_id=pid).scalar() or 0) + 1
+        period = f"{date_from or 'start'} to {date_to or 'latest'}"
+        ds = Dataset(project_id=pid, version=ver, name=name or f"NavTrace {period}", created_by=user.id,
+                     status="loading", message="Queued")
+        db.add(ds)
+        db.commit()
+        params = project_params(db, pid)
+        threading.Thread(target=ingest.load_tracks_navtrace, args=(ds.id, params, date_from or None, date_to or None),
+                         daemon=True).start()
+        audit(db, user, "dataset_created", "dataset", ds.id, {"project_id": pid, "source": "navtrace",
+                                                              "date_from": date_from, "date_to": date_to})
+        return dataset_out(ds)
     ver = (db.query(func.max(Dataset.version)).filter_by(project_id=pid).scalar() or 0) + 1
     ds = Dataset(project_id=pid, version=ver, name=name or f"Tracks v{ver}", created_by=user.id, status="loading",
                  message="Queued")

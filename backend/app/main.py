@@ -78,7 +78,7 @@ def health():
 @app.get("/api/config")
 def client_config():
     return {"tile_url": config.TILE_URL, "idle_minutes": config.SESSION_IDLE_MINUTES, "version": config.VERSION,
-            "flight_api_url": config.FLIGHT_API_URL}
+            "navtrace": bool(config.NAVTRACE_DSN), "flight_api_url": config.FLIGHT_API_URL}
 
 
 @app.exception_handler(Exception)

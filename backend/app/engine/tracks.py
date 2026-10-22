@@ -132,7 +132,13 @@ def quality_summary(points: pd.DataFrame, flights: pd.DataFrame, params: dict) -
     f = flights.copy()
     f["month"] = f["dof"].str[:7]
     cov = f.groupby(["callsign", "month"]).size().unstack(fill_value=0)
+    if len(cov) > 20:
+        # many flight numbers (e.g. a domestic trunk route): the 19 busiest, then the rest summed in one row
+        order = cov.sum(axis=1).sort_values(ascending=False).index
+        rest = cov.loc[order[19:]]
+        cov = pd.concat([cov.loc[order[:19]], rest.sum().to_frame(f"Others ({len(rest)} callsigns)").T])
     q["coverage"] = {"callsigns": cov.index.tolist(), "months": cov.columns.tolist(), "counts": cov.values.tolist()}
+    q["n_callsigns"] = int(f.callsign.nunique())
     q["n_flights"] = int(len(f))
     q["gate_to_gate_share"] = float(f.gate_to_gate.mean()) if len(f) else 0
     q["directions"] = f.groupby(["callsign", "adep", "ades"]).size().reset_index(name="n").to_dict("records")

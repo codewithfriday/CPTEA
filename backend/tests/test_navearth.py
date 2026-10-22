@@ -29,6 +29,14 @@ LAYERS = {
         for a, b, c in [(None, "OMLIV", "UPLAM"), (None, "UPLAM", "BOBOB"), (7, "AKDAT", "LEBIN"), (8, "LEBIN", "OMLIV"),
                         (9, "BOBOB", "ESPIT"), (10, "ESPIT", "NIMIX"), (11, "NIMIX", "ARUPA"), (12, "ARUPA", "PNK")]],
     "enroute_chart:tma_polygon": [TMA],
+    # aerodrome reference points (AIP Vol II-IV) and FIR boundaries, as NavEarth serves them
+    "enroute_chart:arp_vol_ii": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [106.661111, -6.123611]},
+                                  "properties": {"designator": "WIII", "name": "Soekarno-Hatta", "volume_aip": "VOL II"}}],
+    "enroute_chart:arp_vol_iii": [{"type": "Feature", "geometry": {"type": "Point", "coordinates": [117.666389, 4.135833]},
+                                   "properties": {"designator": "WAQA", "name": "Nunukan", "volume_aip": "VOL III"}}],
+    "enroute_chart:arp_vol_iv": [],
+    "enroute_chart:fir_polygon": [{"type": "Feature", "geometry": {"type": "MultiPolygon", "coordinates": [[[[95, 6], [115, 6], [115, -12], [95, -12], [95, 6]]]]},
+                                   "properties": {"layer": "FIR JAKARTA", "unt_srvc": "Jakarta ACC/ Jakarta FIC", "class": "A,B,C,D,E,F,G"}}],
 }
 
 
@@ -51,10 +59,6 @@ class FakeResponse:
 
 @pytest.fixture(scope="module")
 def client():
-    if "CPTEA_DATA_DIR" not in os.environ:
-        tmp = tempfile.mkdtemp()
-        os.environ["CPTEA_DATA_DIR"] = tmp
-        os.environ["CPTEA_STATIC_DIR"] = str(Path(tmp) / "nostatic")
     from fastapi.testclient import TestClient
     from app.main import app
     with TestClient(app) as c:
@@ -94,6 +98,7 @@ def test_settings_and_refresh(client, admin, monkeypatch):
     assert any(not r["ok"] for r in t if r["group"] == "routes")
     r = client.post("/api/ais/navearth-refresh", headers=admin).json()
     assert (r["fixes"], r["navaids"], r["airways"], r["tma"], r["duplicates"]) == (2, 1, 2, 1, 1) and not r["errors"]
+    assert (r["aerodromes"], r["firs"]) == (2, 1)
     # refreshing twice updates fixes and replaces the TMA set instead of duplicating them
     assert client.post("/api/ais/navearth-refresh", headers=admin).status_code == 200
     from app.db import SessionLocal as _S
@@ -103,11 +108,17 @@ def test_settings_and_refresh(client, admin, monkeypatch):
     g = client.get("/api/ais/geojson", headers=admin).json()
     tma = [f for f in g["features"] if f["properties"]["layer"] == "tma"]
     assert len(tma) == 1 and tma[0]["properties"]["name"] == "BANJARMASIN TMA" and tma[0]["properties"]["class"] == "B"
-    # TMA polygons never feed the FIR metric
+    # TMA polygons never feed the FIR metric; NavEarth FIRs do, under their ICAO indicator
     from app.db import SessionLocal
-    from app.models import Airspace
+    from app.models import Airspace, Fix
     with SessionLocal() as db:
-        assert db.query(Airspace).filter(Airspace.kind != "tma").count() == 0
+        firs = db.query(Airspace).filter(Airspace.kind != "tma").all()
+        assert [(a.code, a.kind) for a in firs] == [("WIIF", "fir")]
+        ad = db.query(Fix).filter_by(name="WIII", kind="aerodrome").one()
+        assert (round(ad.lat, 4), round(ad.lon, 4)) == (-6.1236, 106.6611)
+    # a new project takes its aerodrome coordinates from the AIS data when none are given
+    pr = client.post("/api/projects", headers=admin, json={"name": "WIII–WAQA", "adep": "WIII", "ades": "WAQA"}).json()
+    assert (round(pr["adep_lat"], 4), round(pr["ades_lon"], 4)) == (-6.1236, 117.6664)
     s = client.put("/api/settings/navearth", headers=admin, json={"reset": True}).json()
     assert s["url"] == config.NAVEARTH_WFS and not s["saved"]
 

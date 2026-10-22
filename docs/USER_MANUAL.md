@@ -147,6 +147,18 @@ Choose a dataset to see its quality report:
 - **Gaps map tab.** Shows where the airborne gaps are.
 - **Load log tab.** Lists the files that could not be read and the reason for each.
 
+**From the NavTrace database.** When the administrator has connected CPTEA to the NavTrace ADS-B database, **Load tracks** offers a second source, **NavTrace database**.
+
+1. Optionally choose the first and last date of flight.
+2. CPTEA shows how many flights NavTrace holds for the project's two aerodromes, in each direction.
+3. Choose **Load … flights from NavTrace**.
+
+![Loading tracks from the NavTrace database](img/06b_load_navtrace.png)
+
+CPTEA stores a copy of the positions with the dataset version, so the results stay the same even if NavTrace changes later. NavTrace reports no barometric altitude on the ground; positions slower than 50 kt without an altitude are taken as on the ground (0 ft), as in FR24 data. Two recordings with the same callsign on the same day are kept as two flights when their times do not overlap (the second gets the suffix `-2`).
+
+The coverage table shows the 19 busiest callsigns and sums the rest in one "Others" row when a pair has more than 20 flight numbers.
+
 ## 4.2 Flight plans
 
 CPTEA uses flight plans for the filed route and the filed levels. There are two sources.
@@ -186,15 +198,17 @@ Route expansion turns the filed Item 15 (fixes and airways) into coordinates. Th
 
 ![Aeronautical data: the NavEarth address, with its layer names open](img/22_ais.png)
 
-- **NavEarth (AirNav AIS).** The panel at the top of the page shows the WFS address CPTEA loads from. An Administrator chooses **Refresh from NavEarth** to load four layers:
+- **NavEarth (AirNav AIS).** The panel at the top of the page shows the WFS address CPTEA loads from. An Administrator chooses **Refresh from NavEarth** to load six layers:
   - reporting points;
   - en-route navaids;
   - ATS routes;
+  - aerodrome reference points (AIP Vol II, III and IV). A new project whose coordinates are left blank takes them from these;
+  - FIR boundaries (FIR Jakarta as WIIF, FIR Ujung Pandang as WAAF), used for efficiency by FIR;
   - TMA polygons.
 
   NavEarth fix coordinates take precedence over imported ones. Airways are combined, not replaced. NavEarth only covers Indonesian airspace, so an international airway such as N875 comes from NavEarth for its Indonesian part (AKDAT–PNK). The rest comes from the imported data (ENREP–AKDAT). The CPTEA server, not your browser, must be able to reach NavEarth.
 
-  TMA polygons are drawn on every map as **TMA boundaries**; hover over one for its class, limits and approach unit. They are not used for the efficiency-by-FIR metric, which only uses imported FIR boundaries.
+  TMA polygons are drawn on every map as **TMA boundaries**; hover over one for its class, limits and approach unit. They are not used for the efficiency-by-FIR metric, which uses only FIR boundaries. NavEarth covers Indonesian aerodromes and FIRs; foreign aerodromes (for example VTBS, WSSS) need their coordinates entered, and the part of a flight outside the loaded FIRs is reported as such.
 - **Fixes CSV** (Analyst). Columns `name, lat, lon` and optionally `kind, airac`.
 - **Airways CSV** (Analyst). Columns `airway, seq, fix`, with one row per fix in order.
 - **FIR / airspace GeoJSON** (Administrator). Polygons with a `code` property such as WIIF or VTBB. These are used for the efficiency-by-FIR metric.
@@ -217,6 +231,28 @@ Other users see the address, but only an Administrator can change it.
 
 - A fix that cannot be found at either **end** of a route, such as TUMGA, is skipped, and the route is still used.
 - A fix that cannot be found in the **middle** of a route makes that plan unusable for reference-route metrics. Add the fix's coordinates and run the analysis again.
+
+## 4.4 Adding city pairs from NavTrace in one step
+
+An administrator can create a set of city-pair projects from the NavTrace database with one command on the CPTEA server. It also imports the flight plans retrieved from the AirNav flight data API (with `fetch_city_pair_fpls.py`) and can start the first analysis of each:
+
+```
+cd backend
+python -m app.tools.add_city_pairs --fpl-dir /path/to/fpl_city_pairs --run
+```
+
+By default this covers the six candidate pairs: WADD–WIII, WIII–WSSS, WARR–WIII, WIII–WIMM, WAAA–WIII and WADD–WSSS. `--pairs` chooses others, and `--from` / `--to` limit the dates of flight. For each pair the command:
+
+1. creates the project, or reuses the one with the same two aerodromes, with the aerodrome reference points from the AIS data;
+2. saves a parameter version adapted to the pair. The VTBS–WADD defaults assume a long north–south route, so three values are changed and noted on the version:
+   - the minimum flight duration (GEN-03), set to 60% of the estimated block time;
+   - the route-classification cut lines (CLU-02), as latitudes for a mainly north–south pair or longitudes for an east–west one, all outside the clip radius around both aerodromes;
+   - the boundary rings (HOR-01b), keeping only rings that leave at least 50 NM of en-route flight;
+3. loads the tracks from NavTrace into a new dataset version;
+4. imports the flight plans;
+5. with `--run`, runs the analysis and reports the number of outliers. It warns when more than 5% of flights are outliers, which usually means the cut lines need adjusting under Settings.
+
+Existing datasets and runs are never changed. The VTBS–WADD project keeps its FR24 data; only its aerodrome reference points are updated to the AIP values (VTBS 13.685833, 100.748889; WADD −8.7475, 115.169167). Start a new run to use them. `--keep-vtbs-wadd-coords` leaves them unchanged.
 
 # 5. Parameters
 

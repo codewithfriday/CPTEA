@@ -220,7 +220,7 @@ def navearth(admin: User = Depends(require_role("admin")), db: Session = Depends
         raise HTTPException(500, f"NavEarth data was downloaded but could not be saved; nothing was changed. {e.__class__.__name__}: {str(e)[:300]}")
     finally:
         db.info.pop("fix_cache", None)
-    if not (res["fixes"] or res["navaids"] or res["airways"] or res["tma"]) and res["errors"]:
+    if not any(res[k] for k in ("fixes", "navaids", "airways", "tma", "aerodromes", "firs")) and res["errors"]:
         raise HTTPException(502, "NavEarth not reachable from the server: " + "; ".join(res["errors"][:3]))
     audit(db, admin, "navearth_refreshed", "ais", st["url"], res)
     return res

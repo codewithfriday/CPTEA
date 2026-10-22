@@ -48,8 +48,8 @@ function NewProject({ onClose, onDone }) {
   const [cs, setCs] = useState([{ callsign: "", dir: "out" }]);
   const set = (k) => (e) => setF({ ...f, [k]: e.target.value });
   const vtbs = () => {
-    setF({ name: "VTBS–WADD", description: "Bangkok Suvarnabhumi – Bali", adep: "VTBS", ades: "WADD", adep_lat: 13.6811, adep_lon: 100.7475,
-      ades_lat: -8.7482, ades_lon: 115.1672, period_start: "2025-06-01", period_end: "2026-06-30" });
+    setF({ name: "VTBS–WADD", description: "Bangkok Suvarnabhumi – Bali", adep: "VTBS", ades: "WADD", adep_lat: 13.685833, adep_lon: 100.748889,
+      ades_lat: -8.7475, ades_lon: 115.169167, period_start: "2025-06-01", period_end: "2026-06-30" });
     setCs([{ callsign: "THA431", dir: "out" }, { callsign: "THA439", dir: "out" }, { callsign: "THA432", dir: "back" }, { callsign: "THA440", dir: "back" }]);
   };
   const save = async () => {

@@ -84,6 +84,8 @@ const LAYER_HELP = {
   navaids: "En-route navaids (VOR, NDB, DME)",
   routes: "ATS routes; separate several layers with commas",
   tma: "TMA polygons, drawn on the maps (not used for the FIR metric)",
+  aerodromes: "Aerodrome reference points; new projects take their ADEP/ADES coordinates from these",
+  fir: "FIR boundaries, used for efficiency by FIR (metric 6)",
 };
 
 function NavEarth({ admin, onLoaded }) {
@@ -104,11 +106,11 @@ function NavEarth({ admin, onLoaded }) {
   const refresh = () => run("refresh", async () => {
     const r = await api.post("/ais/navearth-refresh");
     setLast(r);
-    toast(`Loaded from NavEarth: ${r.fixes} points, ${r.navaids} navaids, ${r.airways} airways, ${r.tma} TMA polygons`);
+    toast(`Loaded from NavEarth: ${r.fixes} points, ${r.navaids} navaids, ${r.airways} airways, ${r.aerodromes ?? 0} aerodromes, ${r.firs ?? 0} FIRs, ${r.tma} TMA polygons`);
     onLoaded();
   });
   return (
-    <Panel title="NavEarth (AirNav AIS)" sub="CPTEA loads reporting points, navaids, ATS routes and TMA polygons from this WFS address. NavEarth data takes precedence over imported files."
+    <Panel title="NavEarth (AirNav AIS)" sub="CPTEA loads reporting points, navaids, ATS routes, aerodrome reference points, FIR boundaries and TMA polygons from this WFS address. NavEarth data takes precedence over imported files."
       actions={admin && <button className="btn" disabled={!!busy || dirty} title={dirty ? "Save the address first" : ""} onClick={refresh}>{busy === "refresh" ? "Loading from NavEarth…" : "Refresh from NavEarth"}</button>}>
       <div className="stack">
         <label className="f">WFS address

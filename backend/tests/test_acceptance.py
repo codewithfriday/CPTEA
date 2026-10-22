@@ -17,9 +17,6 @@ pytestmark = pytest.mark.skipif(not DATA, reason="CPTEA_TEST_DATA not set")
 
 @pytest.fixture(scope="module")
 def client():
-    tmp = tempfile.mkdtemp()
-    os.environ["CPTEA_DATA_DIR"] = tmp
-    os.environ["CPTEA_STATIC_DIR"] = str(Path(tmp) / "nostatic")
     from fastapi.testclient import TestClient
     from app.main import app
     with TestClient(app) as c:

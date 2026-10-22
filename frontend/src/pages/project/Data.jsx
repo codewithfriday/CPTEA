@@ -41,24 +41,61 @@ function Upload({ onClose, onDone }) {
   const [files, setFiles] = useState([]);
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
+  const [src, setSrc] = useState("files");
+  const [period, setPeriod] = useState({ from: "", to: "" });
+  const [nt, setNt] = useState(null);
+  const [cfg, setCfg] = useState(null);
+  useEffect(() => { api.get("/config").then(setCfg).catch(() => setCfg({})); }, []);
+  useEffect(() => {
+    if (src !== "navtrace") return;
+    setNt(null);
+    const t = setTimeout(() => api.get(`/projects/${p.id}/navtrace?date_from=${period.from}&date_to=${period.to}`).then(setNt)
+      .catch((e) => setNt({ ok: false, message: e.message })), 400);
+    return () => clearTimeout(t);
+  }, [src, period.from, period.to, p.id]);
   const go = async () => {
     const fd = new FormData();
     fd.append("name", name);
-    fd.append("server_path", path);
-    [...files].forEach((f) => fd.append("files", f, f.webkitRelativePath || f.name));
+    if (src === "navtrace") {
+      fd.append("source", "navtrace");
+      fd.append("date_from", period.from);
+      fd.append("date_to", period.to);
+    } else {
+      fd.append("server_path", path);
+      [...files].forEach((f) => fd.append("files", f, f.webkitRelativePath || f.name));
+    }
     setBusy(true);
     try { const d = await api.post(`/projects/${p.id}/datasets`, fd); toast("Loading started"); onDone(d); } catch (e) { toast(e.message, "error"); } finally { setBusy(false); }
   };
   return (
     <Modal title="Load surveillance tracks" onClose={onClose}>
       <div className="stack">
-        <label className="f">Dataset name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. FR24 Jun 2025 – Jun 2026" /></label>
-        <label className="f">CSV files or a ZIP (one CSV per flight, FR24 columns)
-          <input type="file" multiple accept=".csv,.zip" onChange={(e) => setFiles(e.target.files)} /></label>
-        <label className="f">or a whole folder<input type="file" webkitdirectory="" directory="" multiple onChange={(e) => setFiles(e.target.files)} /></label>
-        <label className="f">or a folder path on the server<input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/data/Flights" /></label>
-        <p className="muted small">Required columns: Timestamp, UTC, Callsign, Position ("lat,lon"), Altitude, Speed, Direction. File names like THA431-2025-07-01.csv set the flight identity.</p>
-        <div className="row end"><button className="btn" disabled={busy || (!files.length && !path)} onClick={go}>{busy ? "Uploading…" : `Load ${files.length ? files.length + " files" : "folder"}`}</button></div>
+        {cfg?.navtrace && (
+          <div className="chips">
+            <button className={`chip ${src === "files" ? "on" : ""}`} onClick={() => setSrc("files")}>FR24 files</button>
+            <button className={`chip ${src === "navtrace" ? "on" : ""}`} onClick={() => setSrc("navtrace")}>NavTrace database</button>
+          </div>
+        )}
+        <label className="f">Dataset name<input value={name} onChange={(e) => setName(e.target.value)}
+          placeholder={src === "navtrace" ? "e.g. NavTrace Aug – Oct 2026" : "e.g. FR24 Jun 2025 – Jun 2026"} /></label>
+        {src === "files" ? (<>
+          <label className="f">CSV files or a ZIP (one CSV per flight, FR24 columns)
+            <input type="file" multiple accept=".csv,.zip" onChange={(e) => setFiles(e.target.files)} /></label>
+          <label className="f">or a whole folder<input type="file" webkitdirectory="" directory="" multiple onChange={(e) => setFiles(e.target.files)} /></label>
+          <label className="f">or a folder path on the server<input value={path} onChange={(e) => setPath(e.target.value)} placeholder="/data/Flights" /></label>
+          <p className="muted small">Required columns: Timestamp, UTC, Callsign, Position ("lat,lon"), Altitude, Speed, Direction. File names like THA431-2025-07-01.csv set the flight identity.</p>
+          <div className="row end"><button className="btn" disabled={busy || (!files.length && !path)} onClick={go}>{busy ? "Uploading…" : `Load ${files.length ? files.length + " files" : "folder"}`}</button></div>
+        </>) : (<>
+          <p className="small muted">Loads every {p.adep}–{p.ades} flight (both directions) recorded by NavTrace, from the ADS-B database on the AirNav network. A copy is stored with this dataset version, so later changes in NavTrace do not alter its results.</p>
+          <div className="row">
+            <label className="f">First date of flight<input type="date" value={period.from} onChange={(e) => setPeriod({ ...period, from: e.target.value })} /></label>
+            <label className="f">Last date of flight<input type="date" value={period.to} onChange={(e) => setPeriod({ ...period, to: e.target.value })} /></label>
+          </div>
+          <p className="small">{!nt ? <span className="muted">Checking NavTrace…</span> : nt.ok
+            ? <>NavTrace holds <b>{nt.flights}</b> flights for this pair{nt.flights ? <> ({Object.entries(nt.by_direction).map(([k, v]) => `${k.replace("-", " → ")}: ${v}`).join(", ")}; {nt.first} to {nt.last})</> : null}.</>
+            : <span className="badge bad" style={{ whiteSpace: "normal" }}>{nt.message}</span>}</p>
+          <div className="row end"><button className="btn" disabled={busy || !nt?.ok || !nt?.flights} onClick={go}>{busy ? "Starting…" : `Load ${nt?.flights || ""} flights from NavTrace`}</button></div>
+        </>)}
       </div>
     </Modal>
   );

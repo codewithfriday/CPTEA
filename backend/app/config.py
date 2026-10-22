@@ -4,7 +4,7 @@ from pathlib import Path
 
 APP_NAME = "CPTEA"
 APP_TITLE = "City-Pair Trajectory Efficiency Analyser"
-VERSION = "1.0.3"
+VERSION = "1.1.0"
 
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("CPTEA_DATA_DIR", BASE_DIR.parent.parent / "data")).resolve()
@@ -30,6 +30,9 @@ NAVEARTH_WFS = os.environ.get(
     "https://app-pia.airnavindonesia.co.id/geoserver/enroute_chart/ows?service=WFS&version=1.0.0&request=GetFeature"
     "&typeName=enroute_chart:tma_polygon&outputFormat=application/json",
 )
+# NavTrace ADS-B database (PostgreSQL + MobilityDB), e.g. "host=172.20.25.30 dbname=navtrace_flight user=cptea_ro password=..."
+NAVTRACE_DSN = os.environ.get("CPTEA_NAVTRACE_DSN", "")
+NAVTRACE_TABLE = os.environ.get("CPTEA_NAVTRACE_TABLE", "navtrace.flight_trajectory")
 FLIGHT_API_URL = os.environ.get("CPTEA_FLIGHT_API_URL", "http://172.20.17.117:3000")
 FLIGHT_API_TOKEN = os.environ.get("CPTEA_FLIGHT_API_TOKEN", "")
 
